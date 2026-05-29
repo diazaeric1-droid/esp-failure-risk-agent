@@ -4,9 +4,11 @@
 
 Built by a Staff Production Engineer (ex-OXY, ex-Shell) who spent 9 years troubleshooting ESPs by hand.
 
-[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://esp-failure-risk.example.com)
-[![License](https://img.shields.io/badge/license-MIT-blue)]()
-[![Python](https://img.shields.io/badge/python-3.11+-blue)]()
+[![Live Demo](https://img.shields.io/badge/demo-live-brightgreen)](https://esp-failure-risk.streamlit.app)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.11+-blue)](https://www.python.org/)
+
+**Try it now → [esp-failure-risk.streamlit.app](https://esp-failure-risk.streamlit.app)**
 
 ---
 
