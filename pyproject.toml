@@ -1,0 +1,28 @@
+[project]
+name = "esp-failure-risk-agent"
+version = "0.1.0"
+description = "Predict 30-day ESP failure risk + plain-English explanations"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{name = "Eric Diaz II", email = "diaz.a.eric1@gmail.com"}]
+license = {text = "MIT"}
+dependencies = [
+    "anthropic>=0.40.0",
+    "pandas>=2.2.0",
+    "numpy>=1.26.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.7.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+ml = ["scikit-learn>=1.4.0", "xgboost>=2.0.0", "joblib>=1.3.0"]
+demo = ["streamlit>=1.31.0", "plotly>=5.18.0"]
+dev = ["pytest>=8.0.0", "ruff>=0.3.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

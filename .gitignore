@@ -1,0 +1,15 @@
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.venv/
+venv/
+dist/
+build/
+*.egg-info/
+.streamlit/secrets.toml
+artifacts/
+data/synthetic/*.csv
+data/synthetic/labels.csv
+.DS_Store
