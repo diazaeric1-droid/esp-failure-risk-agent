@@ -38,7 +38,7 @@ def explain_well(
     prompt = f"""Well: {well_id}
 30-day failure probability: {risk_score:.1%}
 
-Top features driving this risk (SHAP-style contributions, positive = increases risk):
+Top features driving this risk (XGBoost Tree SHAP contributions, positive = increases risk):
 {drivers_str}
 
 Write the 2-3 sentence rationale."""

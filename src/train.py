@@ -35,9 +35,12 @@ def main():
     model.save(args.out)
 
     console.print(f"\n[bold green]Training complete.[/] Saved to {args.out}")
-    console.print(f"  AUROC:                {result.auroc:.3f}")
-    console.print(f"  Precision @ top-10%:  {result.precision_at_top10:.3f}")
-    console.print(f"  Recall @ top-10%:     {result.recall_at_top10:.3f}")
+    console.print(f"  AUROC (single split): {result.auroc:.3f}  "
+                  f"(n_test={result.n_test}, positives={result.n_test_positives})")
+    console.print(f"  AUROC (K-fold CV):    {result.auroc_cv_mean:.3f} ± {result.auroc_cv_std:.3f}  ← trust this")
+    console.print(f"  Precision @ top-10%:  {result.precision_at_top10pct:.3f}")
+    console.print(f"  Recall @ top-10%:     {result.recall_at_top10pct:.3f}")
+    console.print(f"  Calibrated probs:     {result.calibrated}")
 
     top_features = sorted(result.feature_importance.items(), key=lambda x: -x[1])[:5]
     console.print("\n[bold]Top features by importance:[/]")
@@ -45,13 +48,28 @@ def main():
         console.print(f"  {feat:<30} {imp:.3f}")
 
     Path("artifacts").mkdir(exist_ok=True)
+    report = {
+        "auroc": result.auroc,
+        "auroc_cv_mean": result.auroc_cv_mean,
+        "auroc_cv_std": result.auroc_cv_std,
+        "precision_at_top10pct": result.precision_at_top10pct,
+        "recall_at_top10pct": result.recall_at_top10pct,
+        "n_test": result.n_test,
+        "n_test_positives": result.n_test_positives,
+        "calibrated": result.calibrated,
+        "feature_importance": result.feature_importance,
+    }
     with open("artifacts/training_report.json", "w") as f:
-        json.dump({
-            "auroc": result.auroc,
-            "precision_at_top10": result.precision_at_top10,
-            "recall_at_top10": result.recall_at_top10,
-            "feature_importance": result.feature_importance,
-        }, f, indent=2)
+        json.dump(report, f, indent=2)
+
+    # Append a versioned entry to the model registry (audit trail of what shipped).
+    try:
+        from .registry import register_model
+        metrics = {k: v for k, v in report.items() if k != "feature_importance"}
+        register_model(metrics=metrics, feature_names=model.feature_names)
+        console.print("  Registered run in artifacts/registry.json")
+    except Exception as e:  # registry is best-effort; never fail training over it
+        console.print(f"  [yellow]Registry update skipped:[/] {e}")
 
 
 if __name__ == "__main__":

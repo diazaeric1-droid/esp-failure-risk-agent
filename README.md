@@ -64,23 +64,29 @@ SCADA CSV ──► features.py ──► model.py (XGBoost) ──► risk scor
                               ranker.py → daily digest
 ```
 
-The ML model produces a calibrated probability + feature contributions. Claude turns those contributions into the natural-language story a production engineer would write.
+The ML model produces a 30-day failure probability + feature contributions. Claude turns those contributions into the natural-language story a production engineer would write. Probabilities are calibrated (Platt / sigmoid on a held-out slice) when the positive count allows, with a guarded fallback to raw XGBoost outputs on very small samples.
 
 ## Model performance
 
-Synthetic eval (held-out 30%):
-- **AUROC:** 0.89
-- **Precision @ top-10:** 0.80
-- **Recall @ top-10:** 0.65
+The training pipeline reports **two** AUROC numbers: a single held-out split (high-variance on this small, 12%-positive dataset) and a **stratified K-fold CV mean ± std**, which is the number to trust. The model uses `scale_pos_weight` for class imbalance.
 
-On real operator data, expect lower numbers — synthetic data is cleaner than reality. Use this as a baseline to beat.
+**Regenerate the metrics** (the synthetic generator was hardened — see below — so a fresh run reflects the realistic data):
+
+```bash
+python data/synthetic/generate.py   # overlapping signatures + ~5% label noise
+python -m src.train                  # class-weighted XGBoost, calibration, K-fold CV
+```
+
+**What to expect:** the generator now varies failure onset/severity, adds sub-threshold degradation to ~25% of healthy wells, and injects ~5% label noise, so the classes genuinely overlap. Expect **AUROC ≈ 0.75–0.90** (CV mean), not the perfect score the earlier separable generator produced. Treat any near-1.0 number as a red flag, not a win.
+
+> The committed `artifacts/` (`esp_risk_model.joblib`, `training_report.json`) are from the **pre-refactor** separable generator and read AUROC 1.0 — they're kept so the live demo runs out-of-the-box. Run the two commands above to refresh them with the realistic pipeline.
 
 ## Roadmap
 
 - [x] v0.1 — XGBoost baseline + Claude explanations + daily digest
 - [x] v0.2 — Streamlit dashboard
-- [ ] v0.3 — Calibration and threshold tuning per asset
-- [ ] v0.4 — SHAP-based feature contributions instead of permutation importance
+- [x] v0.3 — Class weighting, Platt calibration, stratified K-fold CV, realistic (overlapping + noisy) synthetic data
+- [ ] v0.4 — Full `shap` library integration + global summary plots (current: XGBoost `pred_contribs` / Tree SHAP values)
 - [ ] v0.5 — Real-time scoring pipeline (Kafka or polling SCADA historian)
 - [ ] v0.6 — Adjacent failure modes: rod pump parted-rod, gas lift loading
 
