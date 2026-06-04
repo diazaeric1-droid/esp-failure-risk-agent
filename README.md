@@ -1,3 +1,15 @@
+---
+title: ESP Failure-Risk Agent
+emoji: ⚙️
+colorFrom: blue
+colorTo: gray
+sdk: streamlit
+sdk_version: 1.50.0
+app_file: demo/app.py
+pinned: true
+license: mit
+---
+
 # ESP Failure Risk Agent
 
 > An open-source ML + LLM system that ranks ESP wells by 30-day failure risk and writes a plain-English explanation for each.
