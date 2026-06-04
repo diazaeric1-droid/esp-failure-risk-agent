@@ -4,6 +4,45 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-06-03
+
+### Added
+- **Two physically-real SCADA channels**: `drive_freq_hz` (VSD output frequency)
+  and `current_imbalance_pct` (3-phase motor current imbalance) — the first signals
+  an ESP analyst pulls up, and diagnostic of failure modes the 5-channel schema
+  couldn't express. Optional in the loader (healthy defaults backfill old exports).
+- **Two new failure modes** in the generator: **gas lock** (pump-off cycling —
+  flow crashes intermittently, runtime cycles, drive frequency ramps) and
+  **electrical / motor short** (current imbalance climbs). Five modes total.
+- **Deterministic failure-mode classifier** (`classify_failure_mode`) that grounds
+  the LLM rationale (scale · gas interference · gas lock · downthrust · electrical),
+  shown in the dashboard and digest. Detection stays deterministic; the LLM narrates.
+- **Alert-system metrics from out-of-fold predictions**: precision@k / recall@k now
+  computed across the whole fleet (was a ~3-well test slice), plus a **reliability
+  diagram** and **Brier score** in the dashboard.
+- New features: `current_imbalance_last7_mean`, `current_imbalance_max_30d`,
+  `high_imbalance_days_30d`, `drive_freq_last7_mean`, `drive_freq_slope_30d`.
+- `failure_mode` tag in `labels.csv`; model-artifact SHA-256 recorded in the registry.
+
+### Fixed
+- **Platt calibration was silently disabled on scikit-learn ≥1.6** (`cv='prefit'`
+  was removed in 1.8, raising into the guarded fallback). Now uses `FrozenEstimator`
+  with a legacy `cv='prefit'` fallback — calibration actually runs again.
+- **SHAP ↔ calibration mismatch**: `feature_contributions` decomposed the raw booster
+  while `predict_proba` returned a *separately-trained* calibrated model. The
+  calibrator now wraps the same booster Tree SHAP explains, so drivers and the shown
+  probability reconcile (verified: Spearman(raw margin, calibrated p) = 1.00).
+- **Shipped model ↔ reported metric decoupling**: both now use the same procedure;
+  metrics are OOF, and a training-time score distribution is stored for honest
+  **PSI drift** (was comparing two halves of the same live scores).
+- **Per-day slopes** use actual elapsed days, not the sample index — correct on real
+  historian data with gaps.
+- `explain_well` raises a typed `MissingAPIKey` instead of a bare `KeyError`; the
+  dashboard and ranker degrade gracefully to the deterministic diagnosis with no key.
+- Committed `artifacts/` now ship the **realistic** model (AUROC ≈ 0.85 OOF, calibrated)
+  out-of-the-box — no local retrain required, no more AUROC = 1.0 stand-in.
+- Version strings aligned to 0.5.0 (`pyproject.toml`, `__init__.py`).
+
 ## [0.4.1] — 2026-06-02
 
 - Self-heal stale Streamlit bytecode cache at startup: purge `src/` `__pycache__`

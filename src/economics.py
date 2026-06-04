@@ -96,22 +96,30 @@ def recommend_threshold(
         intervention_cost=intervention_cost, residual_failure_rate=residual_failure_rate,
     )  # threshold > 1 => act on nobody
 
+    # The per-well decision rule is monotone in p, so the cost-minimising fleet
+    # threshold is exactly the analytic break-even probability — no need to trust a
+    # grid search to find it. We still sweep to render the savings *curve*, but the
+    # recommended threshold IS the break-even, so the dashboard's two numbers
+    # ("recommended threshold" and "break-even probability") can never disagree.
+    be = break_even_probability(failure_cost, intervention_cost, residual_failure_rate)
+
     candidates = np.linspace(0.0, 1.0, n_candidates)
     curve: list[tuple[float, float]] = []
-    best_t, best_savings, best_cost = 1.0, 0.0, baseline
     for t in candidates:
         cost = _expected_fleet_cost(
             probs, threshold=t, failure_cost=failure_cost,
             intervention_cost=intervention_cost, residual_failure_rate=residual_failure_rate,
         )
-        savings = baseline - cost
-        curve.append((float(t), float(savings)))
-        if savings > best_savings:
-            best_savings, best_t, best_cost = savings, float(t), cost
+        curve.append((float(t), float(baseline - cost)))
 
-    n_flagged = int((probs >= best_t).sum())
+    best_cost = _expected_fleet_cost(
+        probs, threshold=be, failure_cost=failure_cost,
+        intervention_cost=intervention_cost, residual_failure_rate=residual_failure_rate,
+    )
+    best_savings = baseline - best_cost
+    n_flagged = int((probs >= be).sum())
     return ThresholdRecommendation(
-        recommended_threshold=best_t,
+        recommended_threshold=float(be),
         expected_savings=float(best_savings),
         expected_cost_at_threshold=float(best_cost),
         baseline_cost_no_action=float(baseline),
@@ -132,8 +140,9 @@ def break_even_probability(
     Act when:  intervention_cost + residual*p*failure_cost  <=  p*failure_cost
     =>  p >= intervention_cost / ((1 - residual) * failure_cost)
 
-    This is the theoretical per-well threshold; ``recommend_threshold`` returns the
-    fleet-empirical optimum, which agrees with this when probs are dense.
+    Because the per-well rule is monotone in p, this closed-form value is also the
+    fleet cost-minimising threshold, so ``recommend_threshold`` returns exactly this
+    (the swept curve is only for visualising the savings landscape around it).
     """
     denom = (1.0 - residual_failure_rate) * failure_cost
     if denom <= 0:
