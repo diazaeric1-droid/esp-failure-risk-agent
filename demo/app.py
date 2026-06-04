@@ -112,6 +112,10 @@ with st.sidebar:
     threshold = st.slider("Highlight risk above", 0.0, 1.0, 0.5, 0.05)
     show_top = st.number_input("Show top N wells", 5, 50, 10)
     explain_selected = st.checkbox("Generate AI explanation for selected well", value=False)
+    byok_key = st.text_input(
+        "🔑 Anthropic API key (optional)", type="password",
+        help="Bring your own key — used only for this session, never stored. Powers the AI "
+             "explanation. Get one at console.anthropic.com. Everything else works without it.")
 
 col1, col2 = st.columns([1, 2])
 
@@ -156,6 +160,10 @@ with col2:
 
     if explain_selected:
         try:
+            client = None
+            if byok_key:
+                from anthropic import Anthropic
+                client = Anthropic(api_key=byok_key)
             with st.spinner("Generating explanation..."):
                 explanation = explain_well(
                     well_id=selected,
@@ -163,11 +171,12 @@ with col2:
                     feature_values=feat_row,
                     top_drivers=drivers,
                     suspected_mode=suspected_mode,
+                    client=client,
                 )
             st.info(explanation)
         except MissingAPIKey:
-            st.warning("Set `ANTHROPIC_API_KEY` to generate the AI rationale. "
-                       "The risk score, drivers, and suspected failure mode above need no API key.")
+            st.warning("Enter your **Anthropic API key** in the sidebar to generate the AI rationale. "
+                       "The risk score, drivers, and suspected failure mode above need no key.")
 
 
 # ── Decision economics ─────────────────────────────────────────────────────
