@@ -3,9 +3,8 @@ title: ESP Failure-Risk Agent
 emoji: ⚙️
 colorFrom: blue
 colorTo: gray
-sdk: streamlit
-sdk_version: 1.50.0
-app_file: demo/app.py
+sdk: docker
+app_port: 7860
 pinned: true
 license: mit
 ---
