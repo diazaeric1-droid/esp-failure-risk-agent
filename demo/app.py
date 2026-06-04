@@ -11,6 +11,17 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+# --- Self-heal stale bytecode / module cache (Streamlit Cloud) --------------
+# Streamlit reuses the container across redeploys; a cached .pyc or already-imported
+# OLD module can lack symbols added in a newer commit, surfacing as a startup
+# ImportError for a name that exists in the source. Purge src/ bytecode + evict
+# cached src modules so every submodule reloads from CURRENT source (no-op when clean).
+import shutil as _shutil
+for _pycache in (REPO_ROOT / "src").rglob("__pycache__"):
+    _shutil.rmtree(_pycache, ignore_errors=True)
+for _name in [m for m in sys.modules if m == "src" or m.startswith("src.")]:
+    del sys.modules[_name]
+
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st

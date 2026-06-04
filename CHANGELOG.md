@@ -4,6 +4,13 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] — 2026-06-02
+
+- Self-heal stale Streamlit bytecode cache at startup: purge `src/` `__pycache__`
+  and evict cached `src` modules so newly-added functions reload from current source
+  after a redeploy. Fixes the startup ImportError cascade seen after adding new
+  symbols to existing modules (the app no longer needs a manual Reboot to pick them up).
+
 ## [0.4.0] — 2026-06-02
 
 ### Added
