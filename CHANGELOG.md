@@ -4,6 +4,23 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] — 2026-06-06
+
+### Added
+- **Unified dark + navy suite theme** and a **cross-app sidebar suite navigator** —
+  consistent look and one-click navigation across the production-engineering app suite.
+- **Survival / remaining-useful-life (RUL) modeling**: a per-well **time-to-failure
+  (survival) curve** plus a **fleet RUL ranking** (soonest-failure first), tied to the
+  decision-economics alert threshold so the ranking reflects the economic intervention point.
+- **Per-well SHAP contribution bar** — red bars raise risk, green bars lower it.
+- **Real-data adapter path** (Texas RRC / NDIC / Volve schema mapping). *Honest:* the demo
+  still runs on synthetic data with known ground truth; no real-data metrics are claimed.
+- **Shared fleet registry**: Permian field/formation identity stays consistent across the suite.
+
+### Changed
+- Swept the deprecated `use_container_width` argument (→ `width="stretch"`); requires
+  **streamlit>=1.50**.
+
 ## [0.5.0] — 2026-06-03
 
 ### Added

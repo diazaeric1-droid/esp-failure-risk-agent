@@ -26,6 +26,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
+import theme
 from src.data_loader import load_fleet
 from src.explainer import MissingAPIKey, classify_failure_mode, explain_well, top_drivers
 from src.features import featurize_fleet
@@ -42,30 +43,36 @@ try:
 except Exception:
     _economics = None
 try:
+    from src import survival as _survival
+except Exception:
+    _survival = None
+try:
     from src import registry as _registry
 except Exception:
     _registry = None
 
 
-st.set_page_config(page_title="ESP Failure Risk Agent", page_icon="⚙️", layout="wide")
+theme.setup_page("ESP Failure-Risk Agent", icon="⚙️")
+theme.suite_nav("esp")
 
-st.title(f"ESP Failure Risk Agent  `v{APP_VERSION}`")
-st.caption("30-day failure probability + plain-English explanations. Built by an ex-OXY / ex-Shell Staff Production Engineer.")
+theme.header(
+    "ESP Failure-Risk Agent",
+    subtitle="30-day failure probability + plain-English explanations. Built by an ex-OXY / ex-Shell Staff Production Engineer.",
+    chips=[(f"v{APP_VERSION}", "ver"), ("OOF AUROC ≈0.85", "eval")],
+)
 
 with st.expander(f"🆕 What's new in v{APP_VERSION}"):
     st.markdown(
         """
-- **Two new SCADA channels** — **drive frequency (Hz)** and **3-phase current imbalance (%)** —
-  plus two new failure modes (**gas lock**, **electrical/motor short**) so the eval covers the
-  failure taxonomy a reliability engineer actually triages.
-- **Deterministic failure-mode classifier** grounds the LLM rationale (scale / gas interference /
-  gas lock / downthrust / electrical) — detection stays deterministic, the LLM only narrates.
-- **Alert-system metrics from out-of-fold predictions** — precision@k / recall@k computed across
-  the whole fleet (not a 3-well slice) + a **reliability curve** and **Brier score**.
-- **SHAP ↔ calibration reconciled**: the calibrator wraps the same booster Tree SHAP explains, so
-  drivers and the displayed probability agree. (Also fixed Platt calibration on sklearn ≥1.6.)
-- **Honest drift monitoring**: PSI compares live scores against the stored training distribution.
-- Shipped model and the reported CV metric now use the same procedure (no decoupling).
+- **Unified dark + navy suite theme** + a **cross-app sidebar suite navigator** — one consistent
+  look and one-click navigation across the production-engineering app suite.
+- **Survival / remaining-useful-life modeling** — a per-well **time-to-failure (survival) curve**
+  plus a **fleet RUL ranking** (soonest-failure first), tied to the decision-economics threshold.
+- **Per-well SHAP contribution bar** — red bars raise risk, green bars lower it.
+- **Real-data adapter path** (Texas RRC / NDIC / Volve schema mapping). *Honest:* the demo still
+  runs on synthetic data with known ground truth — no real-data metrics are claimed.
+- **Shared fleet registry** — Permian field/formation identity stays consistent across the suite.
+- Swept the deprecated `use_container_width` (→ `width="stretch"`); now requires streamlit>=1.50.
         """
     )
 
@@ -123,7 +130,7 @@ with col1:
     st.subheader("Fleet ranking")
     top = probs.head(show_top).rename("Risk").to_frame()
     top["Risk"] = top["Risk"].apply(lambda p: f"{p:.0%}")
-    st.dataframe(top, use_container_width=True)
+    st.dataframe(top, width="stretch")
 
     st.metric("High-risk wells (≥ threshold)", int((probs >= threshold).sum()))
 
@@ -138,25 +145,38 @@ with col2:
     st.markdown(f"**Suspected failure mode:** {suspected_mode}")
     st.caption(mode_evidence)
 
-    # Time-series plot of the well
+    # Time-series plot of the well (suite colorway handles the multi-series colors)
     scada = fleet[selected]
     fig = go.Figure()
-    for col, color in [("bfpd", "#1f77b4"), ("intake_pressure_psi", "#ff7f0e"),
-                        ("motor_temp_f", "#d62728"), ("motor_amps", "#2ca02c"),
-                        ("drive_freq_hz", "#9467bd"), ("current_imbalance_pct", "#8c564b")]:
+    for col in ("bfpd", "intake_pressure_psi", "motor_temp_f", "motor_amps",
+                "drive_freq_hz", "current_imbalance_pct"):
         if col in scada.columns:
-            fig.add_trace(go.Scatter(x=scada["date"], y=scada[col], name=col, line=dict(color=color)))
-    fig.update_layout(height=350, margin=dict(l=0, r=0, t=20, b=0), legend=dict(orientation="h"))
-    st.plotly_chart(fig, use_container_width=True)
+            fig.add_trace(go.Scatter(x=scada["date"], y=scada[col], name=col))
+    st.plotly_chart(theme.style_fig(fig, height=350), width="stretch")
 
-    drivers = top_drivers(contribs.loc[selected], k=5)
+    drivers = top_drivers(contribs.loc[selected], k=8)
     st.subheader("Top drivers")
     drv_df = pd.DataFrame(drivers, columns=["Feature", "Contribution"])
     drv_df["Current value"] = drv_df["Feature"].map(feat_row)
-    st.dataframe(drv_df, use_container_width=True)
+    st.dataframe(drv_df, width="stretch")
     st.caption("Contributions are Tree SHAP in log-odds space on the raw booster; "
                "the calibrated probability above is a monotone transform of that score, "
                "so driver sign & rank carry over.")
+
+    # Signed per-feature SHAP contributions for the selected well (red = raises
+    # risk, green = lowers it), sorted by |contribution|. Same Tree SHAP values
+    # as the driver table — drivers already comes back signed and ranked by |x|.
+    shap_feats = [f for f, _ in drivers][::-1]      # smallest |x| at top → largest at bottom
+    shap_vals = [c for _, c in drivers][::-1]
+    bar_colors = [theme.RED if v >= 0 else theme.GREEN for v in shap_vals]
+    sfig = go.Figure(go.Bar(
+        x=shap_vals, y=shap_feats, orientation="h",
+        marker_color=bar_colors,
+        hovertemplate="%{y}: %{x:+.2f} log-odds<extra></extra>",
+    ))
+    sfig.update_layout(title="SHAP contributions (log-odds)",
+                       xaxis_title="← lowers risk   ·   raises risk →")
+    st.plotly_chart(theme.style_fig(sfig, height=320, legend=False), width="stretch")
 
     if explain_selected:
         try:
@@ -212,12 +232,98 @@ if _economics is not None:
         cfig = go.Figure()
         cfig.add_trace(go.Scatter(x=curve_df["threshold"], y=curve_df["expected_savings"],
                                   mode="lines", name="Expected savings"))
-        cfig.add_vline(x=rec.recommended_threshold, line_dash="dash", line_color="#2ca02c")
-        cfig.update_layout(height=300, margin=dict(l=0, r=0, t=20, b=0),
-                           xaxis_title="Alert threshold", yaxis_title="Expected savings ($)")
-        st.plotly_chart(cfig, use_container_width=True)
+        cfig.add_vline(x=rec.recommended_threshold, line_dash="dash", line_color=theme.GREEN)
+        cfig.update_layout(xaxis_title="Alert threshold", yaxis_title="Expected savings ($)")
+        st.plotly_chart(theme.style_fig(cfig, height=300), width="stretch")
     except Exception as e:  # never let the economics panel break the app
         st.caption(f"Decision-economics panel unavailable: {e}")
+
+
+# ── Time-to-failure (RUL / survival projection) ────────────────────────────
+# Turn the calibrated 30-day failure probability into a forward survival curve
+# under a constant-hazard-within-window assumption (NOT a trained time-to-event
+# model — see src/survival.py). Median RUL = day S(t) crosses 50%.
+if _survival is not None:
+    st.divider()
+    st.subheader("⏳ Time-to-failure — projected survival & remaining-useful-life")
+    st.caption(
+        "RUL is **model-projected on synthetic data** under a constant-hazard "
+        "assumption (per-day hazard h = 1 − (1 − p₃₀)^(1/30)); it is a projection of "
+        "the existing calibrated probability, not a trained time-to-event model. A "
+        "real-data adapter (`src/real_data.py`, Volve/NDIC) is wired, but the demo "
+        "runs the synthetic generator.")
+
+    HORIZON = 180
+    try:
+        # (a) Selected-well survival curve with 50% line + median-RUL marker.
+        p30_sel = float(probs[selected])
+        days, surv = _survival.survival_curve(p30_sel, horizon_days=HORIZON)
+        med_rul = _survival.expected_rul(p30_sel, horizon_days=HORIZON)
+        med_num = _survival.median_rul_days(p30_sel, horizon_days=HORIZON)
+
+        tcol1, tcol2 = st.columns([2, 1])
+        with tcol1:
+            sv_fig = go.Figure()
+            sv_fig.add_trace(go.Scatter(
+                x=days, y=surv, mode="lines", name="S(t) survival",
+                line=dict(color=theme.BLUE, width=3),
+                hovertemplate="day %{x}: S=%{y:.0%}<extra></extra>"))
+            sv_fig.add_hline(y=0.5, line_dash="dot", line_color=theme.GREY,
+                             annotation_text="50%", annotation_position="right")
+            if isinstance(med_rul, int):
+                sv_fig.add_vline(x=med_rul, line_dash="dash", line_color=theme.RED,
+                                 annotation_text=f"median RUL ≈ {med_rul}d",
+                                 annotation_position="top")
+            sv_fig.update_layout(
+                title=f"Projected survival — {selected}",
+                xaxis_title="days from today", yaxis_title="P(survives past day t)",
+                yaxis_range=[0, 1.02], xaxis_range=[0, HORIZON])
+            st.plotly_chart(theme.style_fig(sv_fig, height=340), width="stretch")
+        with tcol2:
+            rul_label = med_rul if isinstance(med_rul, str) else f"{med_rul} days"
+            st.metric(f"Median RUL — {selected}", rul_label)
+            st.caption(f"30-day failure probability p₃₀ = {p30_sel:.0%}. "
+                       "Median RUL = day projected survival crosses 50%.")
+
+        # (b) Fleet RUL ranking — soonest failure first, colored RED→GREEN.
+        rul_df = _survival.fleet_rul(probs, horizon_days=HORIZON)
+        med_fleet = float(rul_df["median_rul_days"].median())
+        st.metric("Median fleet RUL", f"{med_fleet:.0f} days")
+
+        top_rul = rul_df.head(12).iloc[::-1]   # bottom-up so soonest is on top
+        rmin, rmax = top_rul["median_rul_days"].min(), top_rul["median_rul_days"].max()
+        span = max(rmax - rmin, 1e-9)
+        def _urgency_color(v):
+            # soonest (small RUL) -> RED, later -> GREEN
+            frac = (v - rmin) / span
+            return theme.RED if frac < 0.34 else (theme.AMBER if frac < 0.67 else theme.GREEN)
+        bar_colors = [_urgency_color(v) for v in top_rul["median_rul_days"]]
+        rul_fig = go.Figure(go.Bar(
+            x=top_rul["median_rul_days"], y=top_rul["well_id"], orientation="h",
+            marker_color=bar_colors,
+            hovertemplate="%{y}: median RUL %{x:.0f}d<extra></extra>"))
+        rul_fig.update_layout(
+            title="Fleet RUL ranking (soonest projected failure first)",
+            xaxis_title="median remaining-useful-life (days)", yaxis_title="")
+        st.plotly_chart(theme.style_fig(rul_fig, height=380, legend=False),
+                        width="stretch")
+
+        # (c) Tie to decision economics: wells projected to fail within the quarter.
+        QUARTER = 90
+        within_q = rul_df[rul_df["median_rul_days"] <= QUARTER]
+        n_q = int(len(within_q))
+        # Reuse the economics-panel failure cost if the user set one; else default.
+        try:
+            fc = float(failure_cost)            # set by the decision-economics panel
+        except NameError:
+            fc = float(_economics.DEFAULT_FAILURE_COST) if _economics is not None else 350_000.0
+        addressable = n_q * fc
+        st.info(
+            f"**{n_q}** well(s) projected to fail within the quarter (median RUL ≤ {QUARTER}d) "
+            f"— **${addressable:,.0f}** addressable failure cost at "
+            f"${fc:,.0f}/well.")
+    except Exception as e:  # never let the RUL panel break the app
+        st.caption(f"Time-to-failure panel unavailable: {e}")
 
 
 # ── Model calibration (reliability diagram) ────────────────────────────────
@@ -230,15 +336,14 @@ if reliability:
     rel_df = pd.DataFrame(reliability)
     rfig = go.Figure()
     rfig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
-                              line=dict(dash="dash", color="#888"), name="perfectly calibrated"))
+                              line=dict(dash="dash", color=theme.GREY), name="perfectly calibrated"))
     rfig.add_trace(go.Scatter(x=rel_df["mean_pred"], y=rel_df["obs_freq"],
                               mode="markers+lines", name="model",
                               marker=dict(size=rel_df["count"].clip(6, 24))))
-    rfig.update_layout(height=320, margin=dict(l=0, r=0, t=20, b=0),
-                       xaxis_title="Mean predicted probability",
+    rfig.update_layout(xaxis_title="Mean predicted probability",
                        yaxis_title="Observed failure frequency",
                        xaxis_range=[0, 1], yaxis_range=[0, 1])
-    st.plotly_chart(rfig, use_container_width=True)
+    st.plotly_chart(theme.style_fig(rfig, height=320), width="stretch")
     st.caption("Out-of-fold reliability diagram (marker size ∝ wells in bin). "
                "Points near the diagonal = well-calibrated probabilities.")
 
@@ -255,7 +360,7 @@ if _registry is not None:
                     pd.DataFrame(
                         [(v.well_id, v.feature, v.value, v.low, v.high) for v in violations[:50]],
                         columns=["Well", "Feature", "Value", "Min", "Max"]),
-                    use_container_width=True)
+                    width="stretch")
             else:
                 st.success("Input-range check: all features within plausible operating ranges.")
 
