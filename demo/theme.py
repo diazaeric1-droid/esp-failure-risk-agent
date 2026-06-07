@@ -59,8 +59,12 @@ _CHIP_STYLE = {
 
 CSS = f"""
 <style>
-    /* Clear Streamlit's fixed top toolbar so the header title isn't clipped. */
-    .block-container {{padding-top: 3rem; padding-bottom: 2rem; max-width: 1400px;}}
+    /* Clear Streamlit's fixed top toolbar so the header title isn't clipped. Target the
+       legacy class AND the newer test-ids so it holds across Streamlit versions (older
+       builds ship a taller toolbar / a renamed container). */
+    .block-container,
+    [data-testid="stMainBlockContainer"],
+    [data-testid="stAppViewBlockContainer"] {{padding-top: 4.5rem; padding-bottom: 2rem; max-width: 1400px;}}
 
     /* KPI cards */
     [data-testid="stMetric"] {{
