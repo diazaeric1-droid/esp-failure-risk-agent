@@ -135,6 +135,9 @@ CSS = f"""
 #   (key, display name, stage, live Streamlit Community Cloud url, one-line desc, is_live)
 # Hosted on Streamlit Community Cloud (auto-deploys from GitHub main; unlimited public apps).
 SUITE_APPS = [
+    ("wps", "Well Performance Studio", "Design",
+     "https://well-performance-studio.streamlit.app",
+     "PVT · nodal · lift design · physics curves", True),
     ("pe-digest", "Daily Production Digest", "Monitor",
      "https://daily-pe-digest.streamlit.app",
      "Daily SCADA scan → anomaly brief", True),
