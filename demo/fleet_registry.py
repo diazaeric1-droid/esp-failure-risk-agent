@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, asdict
 
-META_COLUMNS = ("basin", "area", "formation", "lift", "peer_group", "hero")
+META_COLUMNS = ("basin", "area", "formation", "lift", "lateral_length_ft", "peer_group", "hero")
 
 # Onshore Permian geology (public/generic — not proprietary).
 _MIDLAND_FM = ["Wolfcamp A", "Wolfcamp B", "Spraberry (Lower)", "Spraberry (Jo Mill)", "Dean"]
@@ -49,6 +49,7 @@ class WellMeta:
     peer_group: str     # for type-curve peer comparisons
     storyline: str = "" # cross-app narrative ("" unless a hero well)
     hero: bool = False
+    lateral_length_ft: int = 9500   # completion lateral length (ft); curated per hero / derived
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -63,33 +64,33 @@ _HERO: dict[str, WellMeta] = {
         "Rod pump", "42-227-30007", "2022-08", "Midland · Spraberry",
         "Base-decline rod-pump producer with a recent rate step-down — the Daily "
         "Digest's flagged rate-loss event and a Deferment IQ underperformance case.",
-        hero=True),
+        hero=True, lateral_length_ft=7800),
     "well_008": WellMeta(
         "well_008", "Loving 8H", "Delaware", "Loving Co., TX", "Avalon",
         "ESP", "42-301-30008", "2023-01", "Delaware · Avalon",
         "ESP producer with rising intake pressure — an ESP-swap candidate across "
-        "the ESP model, PE Copilot, and AFE Copilot.", hero=True),
+        "the ESP model, PE Copilot, and AFE Copilot.", hero=True, lateral_length_ft=9600),
     "well_013": WellMeta(
         "well_013", "Martin 13H", "Midland", "Martin Co., TX", "Wolfcamp A",
         "ESP", "42-317-30013", "2023-04", "Midland · Wolfcamp A",
         "Gas-interference ESP well — the Fleet Triage Board's top risked-NPV "
         "opportunity (gas-lift-optimization candidate) and the pipeline's flagship.",
-        hero=True),
+        hero=True, lateral_length_ft=10200),
     "well_022": WellMeta(
         "well_022", "Reeves 22H", "Delaware", "Reeves Co., TX", "Bone Spring (3rd)",
         "ESP", "42-389-30022", "2022-11", "Delaware · Bone Spring",
         "ESP wear with current imbalance — high 30-day failure risk and a near-term "
-        "remaining-useful-life well.", hero=True),
+        "remaining-useful-life well.", hero=True, lateral_length_ft=9900),
     "well_041": WellMeta(
         "well_041", "Ward 41H", "Delaware", "Ward Co., TX", "Wolfcamp A",
         "ESP", "42-475-30041", "2023-06", "Delaware · Wolfcamp A",
         "Late-life ESP failure signature — an ESP-swap authorization case feeding "
-        "AFE Copilot and a Capital Optimizer workover candidate.", hero=True),
+        "AFE Copilot and a Capital Optimizer workover candidate.", hero=True, lateral_length_ft=10500),
     "well_048": WellMeta(
         "well_048", "Midland 48H", "Midland", "Midland Co., TX", "Wolfcamp B",
         "ESP", "42-329-30048", "2023-02", "Midland · Wolfcamp B",
         "ESP-swap candidate with degrading thrust — recurring across the predict "
-        "and authorize stages.", hero=True),
+        "and authorize stages.", hero=True, lateral_length_ft=9800),
 }
 
 
@@ -114,10 +115,12 @@ def _derive(well_id: str) -> WellMeta:
     api14 = f"42-{county:03d}-{30000 + n:05d}"
     year = 2021 + (n % 4)
     month = 1 + (n % 12)
+    lateral = 7500 + (n * 311) % 5001   # deterministic 7,500–12,500 ft
     return WellMeta(
         well_id=well_id, name=f"{area.split(' ')[0]} {n}H", basin=basin, area=area,
         formation=formation, lift=lift, api14=api14,
         first_prod=f"{year}-{month:02d}", peer_group=f"{basin} · {formation.split(' (')[0]}",
+        lateral_length_ft=lateral,
     )
 
 
