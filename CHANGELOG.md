@@ -4,6 +4,16 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-06-06
+
+### Added
+- **Fleet explorer (multipage)** — a Fleet Overview (fleet KPIs; a **sortable per-well table**
+  with lift / lateral / basin·formation from the shared registry, 30-day failure risk, suspected
+  mode, median RUL, latest BFPD/intake/amps; plus the reliability curve, decision-economics
+  threshold, drift/PSI, and the fleet RUL ranking) and a **drill-down page per well**
+  (`st.navigation`) with its risk, SHAP contribution bar, SCADA chart, survival/RUL curve, and
+  the BYOK AI explanation. No model/calibration/eval changes — UI only.
+
 ## [0.6.0] — 2026-06-06
 
 ### Added
