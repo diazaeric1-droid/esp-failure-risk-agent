@@ -104,6 +104,11 @@ CSS = f"""
                     border-radius:6px; display:inline-block; margin:0.15rem;
                     font-size:0.8rem; font-weight:600;}}
 
+    /* cross-app well deep-links */
+    .xwell {{font-size:0.8rem; color:{MUTED}; margin:0.15rem 0 0.7rem 0;}}
+    .xwell a {{color:#cfe0f5; text-decoration:none; font-weight:600;}}
+    .xwell a:hover {{text-decoration:underline; color:#fff;}}
+
     /* sidebar suite navigation */
     .snav-wrap {{margin-bottom:0.8rem; border-bottom:1px solid {BORDER}; padding-bottom:0.7rem;}}
     .snav-title {{font-size:0.8rem; font-weight:700; color:{TEXT}; margin-bottom:0.45rem;}}
@@ -238,6 +243,36 @@ def suite_nav(current: str = "") -> None:
         + "".join(rows) + "</div>",
         unsafe_allow_html=True,
     )
+
+
+# Apps with per-well pages at <app-url>/<well_id> (st.Page url_path = well id).
+# AFE is per-AFE and Capital has no per-well pages, so they're excluded.
+_WELL_APP_KEYS = ("pe-digest", "pe-copilot", "esp", "deferment", "pipeline")
+
+
+def well_cross_links(current: str, well_id: str) -> None:
+    """Render a one-line 'open this well in sibling apps' deep-link row.
+
+    Each well-based app exposes per-well pages at ``<app-url>/<well_id>``, so the
+    same well opens (pre-selected) in every sibling app — turning the suite into one
+    navigable system. Call it from a per-well page, passing the app's own key.
+    """
+    urls = {k: u for k, _n, _s, u, _d, _l in SUITE_APPS}
+    names = {k: n for k, n, _s, _u, _d, _l in SUITE_APPS}
+    wid = escape(str(well_id))
+    links = []
+    for k in _WELL_APP_KEYS:
+        if k == current:
+            continue
+        u = urls.get(k)
+        if not u:
+            continue
+        links.append(f'<a href="{escape(u)}/{wid}" target="_blank" '
+                     f'rel="noopener">{escape(names[k])}</a>')
+    if not links:
+        return
+    st.markdown('<div class="xwell">🔗 Open <b>' + wid + "</b> in: "
+                + " · ".join(links) + "</div>", unsafe_allow_html=True)
 
 
 def flag(text: str, kind: str = "ok") -> None:

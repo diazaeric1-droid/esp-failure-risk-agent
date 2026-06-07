@@ -399,6 +399,7 @@ def render_well(well_id: str) -> None:
         subtitle=f"{meta.lift} · {meta.basin} · {meta.formation} · {meta.area}",
         chips=[(f"v{APP_VERSION}", "ver"), (meta.peer_group, "info")],
     )
+    theme.well_cross_links("esp", well_id)
     _back_to_overview()
 
     if well_id not in features.index:

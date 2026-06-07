@@ -1,0 +1,25 @@
+name: smoke
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  render-smoke:
+    name: render-smoke (py3.14)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - name: Install dependencies
+        run: |
+          pip install -U pip
+          pip install -r requirements.txt
+          if [ -f demo/requirements.txt ]; then pip install -r demo/requirements.txt; fi
+          pip install streamlit
+      - name: Render smoke test
+        run: |
+          python -c "from streamlit.testing.v1 import AppTest; at=AppTest.from_file('demo/app.py', default_timeout=300).run(); assert not at.exception, at.exception"
