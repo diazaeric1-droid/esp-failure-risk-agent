@@ -64,7 +64,15 @@ CSS = f"""
        builds ship a taller toolbar / a renamed container). */
     .block-container,
     [data-testid="stMainBlockContainer"],
-    [data-testid="stAppViewBlockContainer"] {{padding-top: 4.5rem; padding-bottom: 2rem; max-width: 1400px;}}
+    [data-testid="stAppViewBlockContainer"] {{padding-top: 5rem; padding-bottom: 2rem; max-width: 1400px;}}
+
+    /* The fixed top header bar: make it transparent and click-through so it never
+       renders as a leftover dark/opaque bar over the light page, regardless of the
+       build's header height. Title content sits safely below via the padding above. */
+    [data-testid="stHeader"],
+    [data-testid="stAppHeader"],
+    header[data-testid] {{background: transparent !important; box-shadow: none !important;
+                          border-bottom: none !important;}}
 
     /* KPI cards */
     [data-testid="stMetric"] {{
