@@ -121,7 +121,7 @@ def _back_to_overview() -> None:
     target = globals().get("overview")
     try:
         st.page_link(target if target is not None else "app.py",
-                     label="← Back to Fleet overview", icon="📊")
+                     label="← Back to Fleet Overview", icon="📊")
     except Exception:
         pass
 
@@ -149,7 +149,21 @@ def render_overview() -> None:
     )
     theme.data_badge("synthetic", "Modeled SCADA + labeled failures with known ground truth — no public dataset has ESP telemetry or failure labels.")
 
-    with st.expander(f"🆕 What's new in v{APP_VERSION}"):
+    theme.how_to(
+        "- **What it predicts** — each ESP well's **30-day failure probability** (a "
+        "calibrated risk %) plus a projected **remaining useful life (RUL)** in days.\n"
+        "- **Inputs** — engineered features from well SCADA: pump-**intake pressure**, "
+        "**motor temperature**, **motor amps** (incl. 3-phase current imbalance), and "
+        "**runtime** / drive frequency.\n"
+        "- **Reading the SHAP drivers** — on each well page the driver bar shows what "
+        "moves that well's risk: **red bars raise** the failure risk, **green bars lower** "
+        "it, sized by each feature's log-odds contribution.\n"
+        "- **Fleet table → drill-down** — start on this Fleet Overview, sort the table by "
+        "30-day risk %, then open any well from the **Wells** section in the sidebar for its "
+        "drivers, survival/RUL curve, and AI rationale."
+    )
+
+    with st.expander(f"🆕 What's New in v{APP_VERSION}"):
         st.markdown(
             """
 - **Fleet explorer (multipage)** — a Fleet Overview plus a **drill-down page per well**
@@ -188,7 +202,7 @@ def render_overview() -> None:
         except Exception:
             rul_df = None
 
-    st.subheader("Fleet snapshot")
+    st.subheader("Fleet Snapshot")
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("Wells", int(len(probs)))
     k2.metric("High-risk wells (≥ threshold)", int((probs >= threshold).sum()))
@@ -197,7 +211,7 @@ def render_overview() -> None:
               f"{med_fleet:.0f} days" if med_fleet == med_fleet else "—")
 
     # --- sortable fleet table -----------------------------------------------
-    st.subheader("Fleet table")
+    st.subheader("Fleet Table")
     st.caption("One row per well — sort any column. Open a well from the **Wells** "
                "section in the sidebar to drill in (risk, SHAP, survival, AI rationale).")
     rul_by_well = (dict(zip(rul_df["well_id"], rul_df["median_rul_days"]))
@@ -239,7 +253,7 @@ def _economics_panel(probs: pd.Series, threshold: float) -> None:
     if _economics is None:
         return
     st.divider()
-    st.subheader("💰 Decision economics — where should the alert fire?")
+    st.subheader("💰 Decision Economics — Where Should the Alert Fire?")
     ec1, ec2 = st.columns(2)
     with ec1:
         failure_cost = st.number_input(
@@ -270,6 +284,10 @@ def _economics_panel(probs: pd.Series, threshold: float) -> None:
         cfig.add_vline(x=rec.recommended_threshold, line_dash="dash", line_color=theme.GREEN)
         cfig.update_layout(xaxis_title="Alert threshold", yaxis_title="Expected savings ($)")
         st.plotly_chart(theme.style_fig(cfig, height=300), width="stretch")
+        theme.source_note(
+            "Expected fleet savings ($) vs. alert threshold; dashed line = cost-minimizing "
+            "threshold. Savings = failure cost ($/well) avoided − intervention cost ($/well) "
+            "spent, summed over wells flagged at each threshold.")
     except Exception as e:  # never let the economics panel break the app
         st.caption(f"Decision-economics panel unavailable: {e}")
 
@@ -280,13 +298,14 @@ def _survival_fleet_panel(rul_df, med_fleet: float) -> None:
     if _survival is None or rul_df is None:
         return
     st.divider()
-    st.subheader("⏳ Fleet remaining-useful-life ranking")
+    st.subheader("⏳ Fleet Remaining-Useful-Life (RUL) Ranking")
     st.caption(
         "RUL is **model-projected on synthetic data** under a constant-hazard "
         "assumption (per-day hazard h = 1 − (1 − p₃₀)^(1/30)); it is a projection of "
         "the existing calibrated probability, not a trained time-to-event model. A "
         "real-data adapter (`src/real_data.py`, Volve/NDIC) is wired, but the demo "
         "runs the synthetic generator.")
+    theme.references(["survival"])
     try:
         st.metric("Median fleet RUL", f"{med_fleet:.0f} days")
 
@@ -303,10 +322,13 @@ def _survival_fleet_panel(rul_df, med_fleet: float) -> None:
             marker_color=bar_colors,
             hovertemplate="%{y}: median RUL %{x:.0f}d<extra></extra>"))
         rul_fig.update_layout(
-            title="Fleet RUL ranking (soonest projected failure first)",
+            title="Fleet RUL Ranking (Soonest Projected Failure First)",
             xaxis_title="median remaining-useful-life (days)", yaxis_title="")
         st.plotly_chart(theme.style_fig(rul_fig, height=380, legend=False),
                         width="stretch")
+        theme.source_note(
+            "Median RUL (days) per well, soonest first. Constant-hazard projection of the "
+            "calibrated 30-day risk; bar color flags urgency (red = soonest).")
 
         # Tie to decision economics: wells projected to fail within the quarter.
         QUARTER = 90
@@ -330,7 +352,7 @@ def _reliability_panel() -> None:
     if not reliability:
         return
     st.divider()
-    st.subheader("🎯 Calibration — do the probabilities mean what they say?")
+    st.subheader("🎯 Calibration — Do the Probabilities Mean What They Say?")
     rel_df = pd.DataFrame(reliability)
     rfig = go.Figure()
     rfig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
@@ -344,12 +366,15 @@ def _reliability_panel() -> None:
     st.plotly_chart(theme.style_fig(rfig, height=320), width="stretch")
     st.caption("Out-of-fold reliability diagram (marker size ∝ wells in bin). "
                "Points near the diagonal = well-calibrated probabilities.")
+    theme.source_note(
+        "Mean predicted probability vs. observed failure frequency, binned, from "
+        "out-of-fold cross-validation (Platt-calibrated). Diagonal = perfect calibration.")
 
 
 def _drift_panel(features: pd.DataFrame, probs: pd.Series) -> None:
     if _registry is None:
         return
-    with st.expander("🛡️ Data quality & score drift"):
+    with st.expander("🛡️ Data Quality & Score Drift"):
         try:
             violations = _registry.input_range_check(features)
             if violations:
@@ -427,7 +452,7 @@ def render_well(well_id: str) -> None:
     st.plotly_chart(theme.style_fig(fig, height=350), width="stretch")
 
     drivers = top_drivers(contribs.loc[well_id], k=8)
-    st.subheader("Top drivers")
+    st.subheader("Top Drivers")
     drv_df = pd.DataFrame(drivers, columns=["Feature", "Contribution"])
     drv_df["Current value"] = drv_df["Feature"].map(feat_row)
     st.dataframe(drv_df, width="stretch")
@@ -446,16 +471,20 @@ def render_well(well_id: str) -> None:
         marker_color=bar_colors,
         hovertemplate="%{y}: %{x:+.2f} log-odds<extra></extra>",
     ))
-    sfig.update_layout(title="SHAP contributions (log-odds)",
+    sfig.update_layout(title="SHAP Contributions (Log-Odds)",
                        xaxis_title="← lowers risk   ·   raises risk →")
     st.plotly_chart(theme.style_fig(sfig, height=320, legend=False), width="stretch")
+    theme.source_note(
+        "Per-feature Tree SHAP contributions (log-odds) for this well — red raises the "
+        "30-day failure risk, green lowers it; sorted by magnitude.")
+    theme.references(["shap"])
 
     # ── Time-to-failure (RUL / survival projection) for this well ───────────
     _well_survival(well_id, risk)
 
     # ── BYOK AI explanation (everything above needs no key) ─────────────────
     st.divider()
-    st.subheader("🤖 AI rationale (BYOK-optional)")
+    st.subheader("🤖 AI Rationale (BYOK-Optional)")
     byok_key = st.text_input(
         "🔑 Anthropic API key (optional)", type="password", key=f"byok_{well_id}",
         help="Bring your own key — used only for this session, never stored. Powers the AI "
@@ -491,11 +520,12 @@ def _well_survival(well_id: str, risk: float) -> None:
     if _survival is None:
         return
     st.divider()
-    st.subheader("⏳ Time-to-failure — projected survival & remaining-useful-life")
+    st.subheader("⏳ Time-to-Failure — Projected Survival & Remaining-Useful-Life (RUL)")
     st.caption(
         "RUL is **model-projected on synthetic data** under a constant-hazard "
         "assumption (per-day hazard h = 1 − (1 − p₃₀)^(1/30)); it is a projection of "
         "the existing calibrated probability, not a trained time-to-event model.")
+    theme.references(["survival"])
     try:
         days, surv = _survival.survival_curve(risk, horizon_days=HORIZON)
         med_rul = _survival.expected_rul(risk, horizon_days=HORIZON)
@@ -514,10 +544,13 @@ def _well_survival(well_id: str, risk: float) -> None:
                                  annotation_text=f"median RUL ≈ {med_rul}d",
                                  annotation_position="top")
             sv_fig.update_layout(
-                title=f"Projected survival — {well_id}",
+                title=f"Projected Survival — {well_id}",
                 xaxis_title="days from today", yaxis_title="P(survives past day t)",
                 yaxis_range=[0, 1.02], xaxis_range=[0, HORIZON])
             st.plotly_chart(theme.style_fig(sv_fig, height=340), width="stretch")
+            theme.source_note(
+                "Projected survival S(t) = P(no failure past day t) under a constant-hazard "
+                "fit to the calibrated 30-day risk; median RUL (days) = where S(t) crosses 50%.")
         with tcol2:
             rul_label = med_rul if isinstance(med_rul, str) else f"{med_rul} days"
             st.metric(f"Median RUL — {well_id}", rul_label)
@@ -537,7 +570,7 @@ _bootstrap_if_needed()
 
 _fleet, _ = load()
 
-overview = st.Page(render_overview, title="Fleet overview", icon="📊", default=True)
+overview = st.Page(render_overview, title="Fleet Overview", icon="📊", default=True)
 wells = [
     st.Page(partial(render_well, wid), title=wid, url_path=wid)
     for wid in sorted(_fleet)
