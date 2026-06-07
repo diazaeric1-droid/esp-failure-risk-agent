@@ -118,29 +118,30 @@ CSS = f"""
 """
 
 # Suite registry, in production-decision-loop order. Each entry:
-#   (key, display name, stage, live HF url, one-line description, is_live)
-# PE Pipeline is paused on HF free tier (6-Space cap), so it has no link.
+#   (key, display name, stage, live Streamlit Community Cloud url, one-line desc, is_live)
+# Hosted on Streamlit Community Cloud (auto-deploys from GitHub main; unlimited public apps).
 SUITE_APPS = [
     ("pe-digest", "Daily Production Digest", "Monitor",
-     "https://diazaeric1-daily-pe-digest.hf.space",
+     "https://daily-pe-digest.streamlit.app",
      "Daily SCADA scan → anomaly brief", True),
     ("pe-copilot", "Production Engineer Copilot", "Diagnose",
-     "https://diazaeric1-pe-copilot.hf.space",
+     "https://pe-copilot.streamlit.app",
      "AI well review → one-page diagnosis", True),
     ("esp", "ESP Failure-Risk", "Predict",
-     "https://diazaeric1-esp-failure-risk.hf.space",
+     "https://esp-failure-risk.streamlit.app",
      "30-day ESP failure ML + SHAP drivers", True),
     ("deferment", "Deferment IQ", "Quantify",
-     "https://diazaeric1-deferment-iq.hf.space",
+     "https://deferment-iq.streamlit.app",
      "Lost-oil accounting + $-Pareto by cause", True),
     ("afe", "AFE Copilot", "Authorize",
-     "https://diazaeric1-afe-copilot.hf.space",
+     "https://afe-copilot.streamlit.app",
      "Drafts AFEs w/ net economics + routing", True),
     ("capital", "Capital Optimizer", "Allocate",
-     "https://diazaeric1-capital-optimizer.hf.space",
+     "https://capital-optimizer.streamlit.app",
      "MILP capital allocation under limits", True),
     ("pipeline", "PE Pipeline", "Orchestrate",
-     "", "Chains detect→predict→authorize", False),
+     "https://pe-pipeline.streamlit.app",
+     "Fleet triage → detect·predict·authorize", True),
 ]
 
 
