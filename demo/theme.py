@@ -1,9 +1,9 @@
-"""Shared dark + navy UI theme for the Upstream Copilot Suite.
+"""Shared light + navy UI theme for the Upstream Copilot Suite.
 
 Vendored identically into every app (next to the Streamlit entrypoint) so all
-seven demos share one look:
+demos share one look:
 
-- dark background, navy ``#1F3A5F`` brand accent
+- light background, navy ``#1F3A5F`` brand accent (professional, modern)
 - standardized ``set_page_config`` + injected CSS (KPI cards, tabs, chips)
 - a flex header with title / subtitle / right-aligned chips
 - ``style_fig`` — one Plotly dark template + suite colorway for every chart
@@ -39,22 +39,22 @@ PURPLE = "#9467bd"
 TEAL = "#56c3c9"
 GREY = "#9b9b9b"   # neutral / non-recoverable
 
-# dark surface tokens (aligned with .streamlit/config.toml)
-BG = "#0e1117"
-PANEL = "#161b26"
-BORDER = "#232b3a"
-TEXT = "#e6e9ef"
-MUTED = "#9aa3b2"
-GRID = "#2a3140"
+# light surface tokens (aligned with .streamlit/config.toml — light, modern, professional)
+BG = "#ffffff"
+PANEL = "#ffffff"
+BORDER = "#e5e7eb"
+TEXT = "#1f2937"
+MUTED = "#6b7280"
+GRID = "#eef1f5"
 
 # ordered colorway for multi-series charts
 COLORWAY = [BLUE, AMBER, RED, GREEN, PURPLE, TEAL, GREY, "#d6c14e"]
 
 _CHIP_STYLE = {
-    "ver": f"background:{NAVY}; color:#cfe0f5;",
-    "eval": f"background:#103b1a; color:#b3ffc7;",
-    "info": f"background:#10233b; color:#b3d4ff;",
-    "warn": f"background:#4a3410; color:#ffe2b3;",
+    "ver": "background:#e7eef7; color:#1F3A5F; border:1px solid #cfe0f5;",
+    "eval": "background:#e7f6ec; color:#1b7a3d; border:1px solid #b7e0c4;",
+    "info": "background:#e8f0fb; color:#1c4f8a; border:1px solid #c7dcf5;",
+    "warn": "background:#fdf3e2; color:#9a6a16; border:1px solid #f0d9a8;",
 }
 
 CSS = f"""
@@ -69,7 +69,7 @@ CSS = f"""
     /* KPI cards */
     [data-testid="stMetric"] {{
         background: {PANEL}; border: 1px solid {BORDER}; border-radius: 10px;
-        padding: 0.6rem 0.85rem;
+        padding: 0.6rem 0.85rem; box-shadow: 0 1px 2px rgba(16,24,40,0.05);
     }}
     [data-testid="stMetricValue"] {{font-size: 1.3rem; line-height: 1.2;}}
     [data-testid="stMetricLabel"] {{font-size: 0.75rem; font-weight: 600; opacity: 0.85;}}
@@ -94,20 +94,20 @@ CSS = f"""
                   font-weight: 600; white-space: nowrap;}}
 
     /* inline status flags */
-    div.flag-high {{background:#4a1010; color:#ffb3b3; padding:0.3rem 0.7rem;
+    div.flag-high {{background:#fdeaea; color:#b42318; padding:0.3rem 0.7rem;
                     border-radius:6px; display:inline-block; margin:0.15rem;
-                    font-size:0.8rem; font-weight:600;}}
-    div.flag-ok {{background:#103b1a; color:#b3ffc7; padding:0.3rem 0.7rem;
+                    font-size:0.8rem; font-weight:600; border:1px solid #f4c7c2;}}
+    div.flag-ok {{background:#e7f6ec; color:#1b7a3d; padding:0.3rem 0.7rem;
                   border-radius:6px; display:inline-block; margin:0.15rem;
-                  font-size:0.8rem; font-weight:600;}}
-    div.flag-warn {{background:#4a3410; color:#ffe2b3; padding:0.3rem 0.7rem;
+                  font-size:0.8rem; font-weight:600; border:1px solid #b7e0c4;}}
+    div.flag-warn {{background:#fdf3e2; color:#9a6a16; padding:0.3rem 0.7rem;
                     border-radius:6px; display:inline-block; margin:0.15rem;
-                    font-size:0.8rem; font-weight:600;}}
+                    font-size:0.8rem; font-weight:600; border:1px solid #f0d9a8;}}
 
     /* cross-app well deep-links */
     .xwell {{font-size:0.8rem; color:{MUTED}; margin:0.15rem 0 0.7rem 0;}}
-    .xwell a {{color:#cfe0f5; text-decoration:none; font-weight:600;}}
-    .xwell a:hover {{text-decoration:underline; color:#fff;}}
+    .xwell a {{color:{NAVY}; text-decoration:none; font-weight:600;}}
+    .xwell a:hover {{text-decoration:underline; color:{BLUE};}}
 
     /* data-provenance badge (real vs synthetic) */
     .data-badge {{display:inline-block; padding:0.25rem 0.7rem; border-radius:8px;
@@ -120,12 +120,12 @@ CSS = f"""
     .snav-item {{padding:0.22rem 0;}}
     .snav-active {{border-left:2px solid {BLUE}; padding-left:0.45rem; margin-left:-0.45rem;}}
     .snav-head {{display:flex; align-items:center; gap:0.4rem; flex-wrap:wrap;}}
-    .snav-link {{font-size:0.82rem; font-weight:600; color:#cfe0f5; text-decoration:none;}}
-    .snav-link:hover {{text-decoration:underline; color:#fff;}}
+    .snav-link {{font-size:0.82rem; font-weight:600; color:{NAVY}; text-decoration:none;}}
+    .snav-link:hover {{text-decoration:underline; color:{BLUE};}}
     .snav-cur {{font-size:0.82rem; font-weight:700; color:{BLUE};}}
     .snav-off {{font-size:0.82rem; color:{MUTED};}}
     .snav-stage {{font-size:0.6rem; font-weight:700; text-transform:uppercase;
-                  letter-spacing:0.04em; color:#9aa3b2; background:#10233b;
+                  letter-spacing:0.04em; color:#5b6677; background:#eef1f5;
                   padding:0.05rem 0.4rem; border-radius:6px;}}
     .snav-desc {{font-size:0.7rem; color:{MUTED}; line-height:1.2; margin-top:0.05rem;}}
 </style>
@@ -201,7 +201,7 @@ def style_fig(fig, height: int | None = None, legend: bool = True):
     Returns the same figure for chaining into ``st.plotly_chart``.
     """
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
         font=dict(color=TEXT, size=12,
@@ -293,10 +293,10 @@ def data_badge(source: str = "synthetic", detail: str = "") -> None:
     """
     if source == "real":
         label = "🟢 REAL DATA"
-        style = "background:#103b1a; color:#b3ffc7; border:1px solid #1d5e30;"
+        style = "background:#e7f6ec; color:#1b7a3d; border:1px solid #b7e0c4;"
     else:
         label = "🟡 SYNTHETIC DATA"
-        style = "background:#4a3410; color:#ffe2b3; border:1px solid #6b4d18;"
+        style = "background:#fdf3e2; color:#9a6a16; border:1px solid #f0d9a8;"
     d = f" — {escape(detail)}" if detail else ""
     st.markdown(f'<div class="data-badge" style="{style}">{label}{d}</div>',
                 unsafe_allow_html=True)
