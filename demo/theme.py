@@ -6,7 +6,8 @@ demos share one look:
 - light background, navy ``#1F3A5F`` brand accent (professional, modern)
 - standardized ``set_page_config`` + injected CSS (KPI cards, tabs, chips)
 - a flex header with title / subtitle / right-aligned chips
-- ``style_fig`` — one Plotly dark template + suite colorway for every chart
+- ``style_fig`` — one Plotly light template + suite colorway for every chart
+- ``references`` / ``how_to`` / ``source_note`` — consistent, sourced annotations
 
 Pure presentation: depends only on ``streamlit`` (and Plotly figures passed to
 ``style_fig``). Importing it has no side effects beyond defining helpers.
@@ -49,6 +50,9 @@ GRID = "#eef1f5"
 
 # ordered colorway for multi-series charts
 COLORWAY = [BLUE, AMBER, RED, GREEN, PURPLE, TEAL, GREY, "#d6c14e"]
+
+# one font family for the whole suite (UI + charts)
+FONT = "-apple-system, Segoe UI, Roboto, sans-serif"
 
 _CHIP_STYLE = {
     "ver": "background:#e7eef7; color:#1F3A5F; border:1px solid #cfe0f5;",
@@ -204,27 +208,40 @@ def header(title: str, subtitle: str = "", chips=None) -> None:
 
 
 def style_fig(fig, height: int | None = None, legend: bool = True):
-    """Apply the suite's dark Plotly template, colorway, and tight margins.
+    """Apply the suite's light Plotly template, colorway, and spacing.
+
+    Spacing is tuned so a chart **title never overlaps the legend or the axis
+    labels**: the title sits top-left, the (horizontal) legend sits top-right in the
+    same band, the top margin grows when either is present, and both axes use
+    ``automargin`` + a title standoff so axis titles can't collide with tick labels.
 
     Returns the same figure for chaining into ``st.plotly_chart``.
     """
+    has_title = bool(getattr(getattr(fig.layout, "title", None), "text", None))
+    top = 56 if (has_title or legend) else 30
     fig.update_layout(
         template="plotly_white",
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(0,0,0,0)",
-        font=dict(color=TEXT, size=12,
-                  family="-apple-system, Segoe UI, Roboto, sans-serif"),
+        font=dict(color=TEXT, size=12, family=FONT),
         colorway=COLORWAY,
-        margin=dict(l=10, r=10, t=34, b=10),
+        margin=dict(l=14, r=18, t=top, b=14),
         hoverlabel=dict(font_size=12),
     )
+    if has_title:
+        # title top-left, in its own band above the plot
+        fig.update_layout(title=dict(
+            x=0.0, xanchor="left", y=0.98, yanchor="top",
+            font=dict(size=14, color=TEXT, family=FONT)))
     if legend:
+        # legend top-RIGHT so it shares the top band with the title without overlap
         fig.update_layout(legend=dict(
-            orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0,
+            orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
             bgcolor="rgba(0,0,0,0)",
         ))
-    fig.update_xaxes(gridcolor=GRID, zerolinecolor=GRID)
-    fig.update_yaxes(gridcolor=GRID, zerolinecolor=GRID)
+    # automargin + standoff keep axis titles clear of tick labels
+    fig.update_xaxes(gridcolor=GRID, zerolinecolor=GRID, automargin=True, title_standoff=10)
+    fig.update_yaxes(gridcolor=GRID, zerolinecolor=GRID, automargin=True, title_standoff=10)
     if height:
         fig.update_layout(height=height)
     return fig
@@ -314,3 +331,81 @@ def flag(text: str, kind: str = "ok") -> None:
     """Render an inline status flag. kind ∈ {ok, high, warn}."""
     cls = {"ok": "flag-ok", "high": "flag-high", "warn": "flag-warn"}.get(kind, "flag-ok")
     st.markdown(f'<div class="{cls}">{escape(str(text))}</div>', unsafe_allow_html=True)
+
+
+# ---- sourced methods + instructions ----------------------------------------
+# Canonical references for the deterministic engineering/ML methods used across the
+# suite. Authored once HERE so every app cites identically and correctly — a PE or
+# recruiter sees the math is annotated and sourced, not hand-waved. Use via
+# ``theme.references([...keys...])``.
+CITATIONS = {
+    "arps": "Arps, J.J. (1945). “Analysis of Decline Curves.” Trans. AIME, 160, 228–247. "
+            "(Exponential / hyperbolic / harmonic rate-decline models.)",
+    "fetkovich": "Fetkovich, M.J. (1980). “Decline Curve Analysis Using Type Curves.” "
+                 "JPT, 32(6), 1065–1077.",
+    "dca_lib": "Decline-curve fitting implemented with prodpy (open-source DCA library, "
+               "MIT-licensed): non-linear least-squares fit of the Arps models.",
+    "monte_carlo": "Probabilistic forecast: Monte-Carlo sampling of the decline-fit "
+                   "parameter uncertainty to produce a P90/P50/P10 rate fan and EUR.",
+    "prms": "Reserves percentiles P90 (proved) / P50 / P10 follow the SPE-PRMS Petroleum "
+            "Resources Management System (SPE/WPC/AAPG/SPEE, rev. 2018): P90 = 90% probability "
+            "of ≥ that volume (conservative), P10 = optimistic.",
+    "npv": "Discounted-cash-flow NPV = Σ CFₜ / (1+i)ᵗ. Standard petroleum project economics "
+           "(e.g., Mian, M.A., “Project Economics and Decision Analysis,” PennWell, 2011).",
+    "vogel": "Vogel, J.V. (1968). “Inflow Performance Relationships for Solution-Gas-Drive "
+             "Wells.” JPT, 20(1), 83–92. (Dimensionless IPR curve.)",
+    "hagedorn_brown": "Hagedorn, A.R. & Brown, K.E. (1965). “Experimental Study of Pressure "
+                      "Gradients … in Small-Diameter Vertical Conduits.” JPT, 17(4). (VLP / "
+                      "multiphase vertical-lift correlation.)",
+    "beggs_brill": "Beggs, H.D. & Brill, J.P. (1973). “A Study of Two-Phase Flow in Inclined "
+                   "Pipes.” JPT, 25(5), 607–617. (Flow-regime-based pressure-gradient model.)",
+    "nodal": "Nodal (systems) analysis: the operating point is the intersection of inflow "
+             "(IPR) and outflow (VLP/tubing) curves at the bottom-hole node. See Brown, K.E. "
+             "(1984), “The Technology of Artificial Lift Methods,” and Beggs (1991), "
+             "“Production Optimization Using Nodal Analysis.”",
+    "esp_affinity": "ESP sizing via centrifugal-pump affinity laws (Q ∝ N, H ∝ N², P ∝ N³) "
+                    "and total-dynamic-head staging. See Takács, G. (2017), “Electrical "
+                    "Submersible Pumps Manual,” 2nd ed., Gulf Professional.",
+    "pvt": "PVT (black-oil) correlations for Bo, Rs, μ, Z. See Standing (1947), Vázquez & "
+           "Beggs (1980), and McCain, “The Properties of Petroleum Fluids” (1990).",
+    "bluebonnet": "PVT, scaling-solution production curves, and rate-transient analysis via "
+                  "bluebonnet (F. Male et al.; open-source, BSD-licensed).",
+    "milp": "Capital selection as a 0/1 mixed-integer linear program (maximize risked NPV "
+            "s.t. per-period budget + rig-day limits), solved by branch-and-bound (CBC) via "
+            "PuLP; an LP relaxation gives the optimality-gap bound.",
+    "shap": "Model explanations via SHAP. Lundberg, S.M. & Lee, S.-I. (2017). “A Unified "
+            "Approach to Interpreting Model Predictions.” NeurIPS 30.",
+    "survival": "Run-life / remaining-useful-life from survival (time-to-event) analysis. "
+                "Foundational: Kaplan & Meier (1958), JASA 53; Cox (1972), J. R. Stat. Soc. B.",
+    "pareto": "Loss attribution ranked by the Pareto principle (the vital-few causes that "
+              "drive most deferred volume); cause split via a deterministic keyword classifier.",
+    "deferment": "Deferment = well potential − actual. Potential is modeled from the well’s "
+                 "full-uptime months (P75, decline-aware); the gap is split into downtime "
+                 "(from days-produced / runtime) vs. underperformance (rate).",
+}
+
+
+def references(keys, title: str = "Methods & References") -> None:
+    """Render a collapsible 'Methods & References' panel citing the canonical sources
+    for the calculations on the page. ``keys`` are CITATIONS keys (unknown keys are
+    skipped). Keeps sourcing consistent and correct across every app."""
+    items = [CITATIONS[k] for k in keys if k in CITATIONS]
+    if not items:
+        return
+    with st.expander(f"📚 {title}"):
+        for c in items:
+            st.markdown(f"- {c}")
+
+
+def how_to(body: str, title: str = "How to use this", expanded: bool = False) -> None:
+    """Render a consistent, collapsible instructions panel. ``body`` is markdown
+    (use ``-`` bullets). Standardizes the 'what am I looking at / how do I drive it'
+    note across the suite."""
+    with st.expander(f"ℹ️ {title}", expanded=expanded):
+        st.markdown(body)
+
+
+def source_note(text: str) -> None:
+    """A small annotation/source caption to sit directly under a chart or table
+    (e.g., the method + units + data provenance for that specific graph)."""
+    st.caption(f"📐 {text}")
