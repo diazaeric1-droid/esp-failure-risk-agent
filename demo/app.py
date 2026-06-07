@@ -147,6 +147,7 @@ def render_overview() -> None:
         chips=[(f"v{APP_VERSION}", "ver"), ("OOF AUROC ≈0.85", "eval"),
                ("fleet explorer", "info")],
     )
+    theme.data_badge("synthetic", "Modeled SCADA + labeled failures with known ground truth — no public dataset has ESP telemetry or failure labels.")
 
     with st.expander(f"🆕 What's new in v{APP_VERSION}"):
         st.markdown(
@@ -399,6 +400,7 @@ def render_well(well_id: str) -> None:
         subtitle=f"{meta.lift} · {meta.basin} · {meta.formation} · {meta.area}",
         chips=[(f"v{APP_VERSION}", "ver"), (meta.peer_group, "info")],
     )
+    theme.data_badge("synthetic", "Modeled SCADA + labeled failures with known ground truth — no public dataset has ESP telemetry or failure labels.")
     theme.well_cross_links("esp", well_id)
     _back_to_overview()
 

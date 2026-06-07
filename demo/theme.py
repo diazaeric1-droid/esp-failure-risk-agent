@@ -109,6 +109,11 @@ CSS = f"""
     .xwell a {{color:#cfe0f5; text-decoration:none; font-weight:600;}}
     .xwell a:hover {{text-decoration:underline; color:#fff;}}
 
+    /* data-provenance badge (real vs synthetic) */
+    .data-badge {{display:inline-block; padding:0.25rem 0.7rem; border-radius:8px;
+                  font-size:0.72rem; font-weight:700; letter-spacing:0.03em;
+                  margin:0.1rem 0 0.7rem 0;}}
+
     /* sidebar suite navigation */
     .snav-wrap {{margin-bottom:0.8rem; border-bottom:1px solid {BORDER}; padding-bottom:0.7rem;}}
     .snav-title {{font-size:0.8rem; font-weight:700; color:{TEXT}; margin-bottom:0.45rem;}}
@@ -273,6 +278,25 @@ def well_cross_links(current: str, well_id: str) -> None:
         return
     st.markdown('<div class="xwell">🔗 Open <b>' + wid + "</b> in: "
                 + " · ".join(links) + "</div>", unsafe_allow_html=True)
+
+
+def data_badge(source: str = "synthetic", detail: str = "") -> None:
+    """Render a data-provenance badge under the header.
+
+    source: 'real' → green "REAL DATA", anything else → amber "SYNTHETIC DATA".
+    detail: short provenance note, e.g. "North Dakota (NDIC) public filings — Bakken"
+    or "modeled fleet with known ground truth". Keeps every app honest about what a
+    visitor is actually looking at.
+    """
+    if source == "real":
+        label = "🟢 REAL DATA"
+        style = "background:#103b1a; color:#b3ffc7; border:1px solid #1d5e30;"
+    else:
+        label = "🟡 SYNTHETIC DATA"
+        style = "background:#4a3410; color:#ffe2b3; border:1px solid #6b4d18;"
+    d = f" — {escape(detail)}" if detail else ""
+    st.markdown(f'<div class="data-badge" style="{style}">{label}{d}</div>',
+                unsafe_allow_html=True)
 
 
 def flag(text: str, kind: str = "ok") -> None:
