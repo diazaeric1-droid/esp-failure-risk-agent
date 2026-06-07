@@ -59,7 +59,8 @@ _CHIP_STYLE = {
 
 CSS = f"""
 <style>
-    .block-container {{padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1400px;}}
+    /* Clear Streamlit's fixed top toolbar so the header title isn't clipped. */
+    .block-container {{padding-top: 3rem; padding-bottom: 2rem; max-width: 1400px;}}
 
     /* KPI cards */
     [data-testid="stMetric"] {{
