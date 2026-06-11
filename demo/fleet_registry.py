@@ -1,5 +1,5 @@
 """Canonical Upstream Copilot Suite fleet registry — the single source of truth
-for well IDENTITY + METADATA shared across all seven apps.
+for well IDENTITY + METADATA shared across all eight apps.
 
 Vendored byte-identical into each app (like ``theme.py``). Apps join this metadata
 onto their OWN production / SCADA / event data by ``well_id`` — every app already
@@ -31,7 +31,7 @@ META_COLUMNS = ("basin", "area", "formation", "lift", "lateral_length_ft", "peer
 _MIDLAND_FM = ["Wolfcamp A", "Wolfcamp B", "Spraberry (Lower)", "Spraberry (Jo Mill)", "Dean"]
 _DELAWARE_FM = ["Bone Spring (2nd)", "Bone Spring (3rd)", "Wolfcamp A", "Avalon", "Wolfcamp X/Y"]
 _MIDLAND_AREAS = ["Martin Co., TX", "Midland Co., TX", "Howard Co., TX", "Glasscock Co., TX"]
-_DELAWARE_AREAS = ["Reeves Co., TX", "Loving Co., TX", "Ward Co., TX", "Lea Co., NM"]
+_DELAWARE_AREAS = ["Reeves Co., TX", "Loving Co., TX", "Ward Co., TX", "Culberson Co., TX"]
 # Permian artificial-lift mix skews ESP / rod pump.
 _LIFTS = ["ESP", "ESP", "ESP", "Rod pump", "Rod pump", "Gas lift", "Gas lift", "Flowing"]
 

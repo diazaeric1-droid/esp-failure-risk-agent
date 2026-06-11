@@ -229,6 +229,8 @@ def render_overview() -> None:
     rows = []
     for well_id in probs.index:
         meta = fleet_registry.get(well_id)
+        if meta.lift != "ESP":
+            continue
         feat_row = features.loc[well_id].to_dict()
         mode, _ = classify_failure_mode(feat_row)
         last = _last_scada(fleet.get(well_id))
