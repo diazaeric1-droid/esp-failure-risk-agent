@@ -375,8 +375,12 @@ CITATIONS = {
             "PuLP; an LP relaxation gives the optimality-gap bound.",
     "shap": "Model explanations via SHAP. Lundberg, S.M. & Lee, S.-I. (2017). “A Unified "
             "Approach to Interpreting Model Predictions.” NeurIPS 30.",
-    "survival": "Run-life / remaining-useful-life from survival (time-to-event) analysis. "
-                "Foundational: Kaplan & Meier (1958), JASA 53; Cox (1972), J. R. Stat. Soc. B.",
+    "survival": "Run-life / remaining-useful-life from a trained discrete-time logistic "
+                "hazard (person-period) model; evaluated with the time-dependent "
+                "concordance index and the Integrated Brier Score (Graf et al., 1999, "
+                "Stat. Med. 18). Foundational survival analysis: Kaplan & Meier (1958), "
+                "JASA 53; Cox (1972), J. R. Stat. Soc. B; discrete-time hazard: Singer & "
+                "Willett (2003), Applied Longitudinal Data Analysis.",
     "pareto": "Loss attribution ranked by the Pareto principle (the vital-few causes that "
               "drive most deferred volume); cause split via a deterministic keyword classifier.",
     "deferment": "Deferment = well potential − actual. Potential is modeled from the well’s "

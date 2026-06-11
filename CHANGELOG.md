@@ -4,6 +4,36 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] — 2026-06-11
+
+### Added
+- **Oracle / Bayes-optimal ceiling** (`src/oracle.py`) — because the synthetic generator's
+  label process is known, we compute the best AUROC / precision@top-10% / Brier *any* model
+  could attain given the ~5% irreducible label noise, and report the model **against** that
+  ceiling. Result: model OOF AUROC ≈ 0.85 vs ceiling ≈ 0.85 → the model captures ~100% of the
+  attainable above-chance signal, i.e. it sits at the noise floor (not a defect). Surfaced in
+  the training console, `artifacts/training_report.json` (`oracle_ceiling` + `signal_capture`,
+  for CI), and a new 📐 *Oracle Ceiling* panel + header chip in the app.
+- **Genuine survival / time-to-event model** (`src/survival_model.py`) — a trained
+  **discrete-time logistic hazard** (person-period; Singer & Willett 2003 / Cox 1972 lineage)
+  fit on real **run-life ground truth**, evaluated **out-of-fold** with proper survival metrics:
+  time-dependent **C-index ≈ 0.86** and **Integrated Brier Score ≈ 0.070** (beats a Kaplan–Meier
+  baseline of 0.081 by ~13%). Implemented with numpy/sklearn — no new runtime dependency.
+  `python -m src.survival_model` writes `artifacts/survival_report.json`; the training run also
+  reports it.
+- The generator now emits **run-life ground truth** — `time_to_event_days` and `event_observed`
+  (right-censored healthy wells included) in `labels.csv` — drawn from an *independent* RNG so the
+  SCADA channels (and thus the classifier data + oracle ceiling) stay byte-identical.
+
+### Changed
+- **Survival/RUL is now a real model, not a projection.** The app's per-well survival curve and
+  fleet RUL ranking are powered by the trained discrete-time hazard model (curve *shape* learned
+  from data), with C-index/IBS shown inline. This corrects the earlier framing where "survival/RUL"
+  was a constant-hazard transform of the 30-day probability; that transform (`src/survival.py`) is
+  retained only as a clearly-labeled fallback. README, app text, and the `survival` citation updated
+  so the claim matches the code.
+- Roadmap: the "survival / time-to-failure (run-life) model" item is delivered (was a v0.6 TODO).
+
 ## [0.7.1] — 2026-06-07
 ### Changed
 - **Light theme** — suite-wide migration from dark/navy to a professional light palette (white surfaces, `plotly_white` charts, navy/blue accents retained); transparent fixed header so the title never clips. `runtime.txt` pinned to Python 3.11.

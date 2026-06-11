@@ -87,14 +87,34 @@ All headline metrics come from **out-of-fold (OOF) predictions** — each well i
 
 Data and the trained artifact aren't committed (they're `.gitignore`d) — the app regenerates them deterministically (seed=7) on first run and trains automatically, so the demo shows the **realistic** model with no manual step. Because the generator now produces overlapping, noisy classes, there is **no AUROC = 1.0 stand-in** to trip over:
 
-| Metric | Value | What it means |
-|---|---|---|
-| AUROC (OOF CV, mean ± std) | **≈ 0.85 ± 0.17** | ranking quality on overlapping, noisy classes |
-| Precision @ top-10% | **≈ 0.90** | of the 10 wells you'd work this week, ~9 really fail |
-| Recall @ top-10% | **≈ 0.53** | fraction of all failures caught in that top-10% alert list |
-| Brier score (OOF) | **≈ 0.10** | probability calibration (lower is better) |
+| Metric | Value | Oracle ceiling | What it means |
+|---|---|---|---|
+| AUROC (OOF CV, mean ± std) | **≈ 0.85 ± 0.17** | **0.85** | ranking quality on overlapping, noisy classes |
+| Precision @ top-10% | **≈ 0.90** | 1.00 | of the 10 wells you'd work this week, ~9 really fail |
+| Recall @ top-10% | **≈ 0.53** | — | fraction of all failures caught in that top-10% alert list |
+| Brier score (OOF) | **≈ 0.10** | 0.05 | probability calibration (lower is better) |
 
 The synthetic generator deliberately varies failure onset/severity, adds sub-threshold degradation to ~25% of healthy wells, and injects ~5% label noise, so the classes genuinely overlap — **treat any near-1.0 AUROC as a red flag, not a win.** Regenerate any time with `python data/synthetic/generate.py && python -m src.train`.
+
+### Is ~0.85 AUROC "good"? — the oracle ceiling
+
+Because the synthetic labels come from a **known** process, there's an information-theoretic ceiling on *any* model. The generator flips ~5% of labels at random (surprise failures / mislabels), and that flip is **independent of the features**, so no model can recover it. The Bayes-optimal ("oracle") predictor scores each well by its true-class probability `P(observed=1 | true class)`; grading those probabilities against the same noisy labels gives the attainable ceiling (`src/oracle.py`, surfaced in `artifacts/training_report.json` and the app's 📐 *Oracle Ceiling* panel):
+
+> **Model OOF AUROC ≈ 0.85 vs oracle ceiling ≈ 0.85 → the model captures ~100% of the attainable above-chance signal.**
+
+In other words, the realistic ~0.85 is the model sitting essentially **at the noise floor**, not below some ideal — the ~0.15 of "missing" AUROC is irreducible label noise, not a model defect. (This seed flips 5 healthy wells to "failed"; their features look healthy, so even a perfect ranker can't lift them above the truly-degrading wells.) The training run prints model-vs-ceiling and writes `oracle_ceiling` + `signal_capture` to the report so CI can assert the model stays near the ceiling rather than chasing an arbitrary AUROC floor.
+
+### Survival / time-to-failure (a real trained model, not a projection)
+
+The per-well **survival curve S(t)** and **remaining-useful-life (RUL)** come from a genuine **discrete-time logistic-hazard** time-to-event model (`src/survival_model.py`), trained on the synthetic *run-life* ground truth — each well's `time_to_event_days` + `event_observed` (right-censored healthy wells included), which the generator now emits. It is a person-period model (Singer & Willett 2003; Cox 1972 lineage) whose hazard **shape** is learned from data, evaluated **out-of-fold** with proper survival metrics:
+
+| Survival metric (OOF) | Value | What it means |
+|---|---|---|
+| Time-dependent **C-index** | **≈ 0.86** | concordance: how often the model orders wells by failure time correctly (0.5 = chance) |
+| **Integrated Brier Score** | **≈ 0.070** | time-integrated survival calibration (lower is better) |
+| IBS — Kaplan–Meier baseline | 0.081 | covariate-free reference; the model beats it by ~13% |
+
+Run it standalone with `python -m src.survival_model` (writes `artifacts/survival_report.json`). The earlier constant-hazard transform of `p30` (`src/survival.py`) is kept only as a clearly-labeled fallback when the trained model can't load.
 
 ### Validation methodology (read before quoting a number)
 
@@ -107,8 +127,9 @@ This is a **cross-sectional snapshot**: one engineered feature row per well at a
 - [x] v0.3 — Class weighting, Platt calibration, stratified K-fold CV, realistic (overlapping + noisy) synthetic data
 - [x] v0.4 — Decision economics (EV-optimal alert threshold), model registry, input-range + PSI drift monitoring
 - [x] v0.5 — Drive-frequency + current-imbalance channels, gas-lock & electrical failure modes, deterministic failure-mode classifier, OOF precision@k / recall@k, reliability curve + Brier, SHAP↔calibration reconciled
-- [ ] v0.6 — Rolling windows per well + **forward-chaining / grouped CV**; survival / time-to-failure (run-life) model
-- [ ] v0.7 — Real-time scoring pipeline (polling SCADA historian) + per-well nameplate-aware thresholds
+- [x] v0.7 — **Oracle/Bayes ceiling** for honest metric framing (model vs attainable AUROC/precision/Brier); **genuine survival / time-to-failure model** (discrete-time logistic hazard on run-life ground truth, OOF C-index + Integrated Brier Score)
+- [ ] v0.8 — Rolling windows per well + **forward-chaining / grouped CV**
+- [ ] v0.9 — Real-time scoring pipeline (polling SCADA historian) + per-well nameplate-aware thresholds
 
 ## Part of a multi-agent pipeline
 

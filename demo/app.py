@@ -75,6 +75,14 @@ try:
 except Exception:
     _survival = None
 try:
+    from src import survival_model as _survival_model  # genuine trained time-to-event model
+except Exception:
+    _survival_model = None
+try:
+    from src import oracle as _oracle                  # Bayes-optimal ceiling for honest framing
+except Exception:
+    _oracle = None
+try:
     from src import registry as _registry
 except Exception:
     _registry = None
@@ -125,6 +133,55 @@ def _scored():
     return probs, contribs
 
 
+@st.cache_resource(show_spinner=False)
+def get_survival_model():
+    """Fit the genuine discrete-time hazard (time-to-event) model on the synthetic
+    run-life ground truth. Cached so it trains once per session. Returns None if the
+    module or the run-life labels aren't available."""
+    if _survival_model is None:
+        return None
+    from src.data_loader import load_labels
+    labels = load_labels(DATA_DIR / "labels.csv")
+    if not {"time_to_event_days", "event_observed"} <= set(labels.columns):
+        return None
+    _, features = load()
+    return _survival_model.fit_on_labels(features, labels)
+
+
+@st.cache_data(show_spinner=False)
+def survival_metrics():
+    """OOF survival metrics (C-index, IBS) for the trained time-to-event model."""
+    if _survival_model is None:
+        return None
+    try:
+        return _survival_model.evaluate_from_disk(
+            str(DATA_DIR), str(DATA_DIR / "labels.csv")).as_dict()
+    except Exception:
+        return None
+
+
+@st.cache_data(show_spinner=False)
+def oracle_ceiling():
+    """Oracle / Bayes-optimal ceiling + the model's share of attainable signal."""
+    if _oracle is None:
+        return None
+    try:
+        from src.data_loader import load_labels
+        labels = load_labels(DATA_DIR / "labels.csv").set_index("well_id")["failed_within_30d"]
+        ceiling = _oracle.compute_oracle_ceiling(labels)
+        probs, _ = _scored()
+        # Use the artifact's OOF AUROC if present; else fall back to the live ranking.
+        rep = REPO_ROOT / "artifacts" / "training_report.json"
+        model_auroc = None
+        if rep.exists():
+            import json
+            model_auroc = json.loads(rep.read_text()).get("auroc_cv_mean")
+        cap = _oracle.signal_capture(model_auroc, ceiling.auroc) if model_auroc else None
+        return {"ceiling": ceiling.as_dict(), "model_auroc": model_auroc, "capture": cap}
+    except Exception:
+        return None
+
+
 # ---- shared helpers --------------------------------------------------------
 
 def _back_to_overview() -> None:
@@ -154,8 +211,8 @@ def render_overview() -> None:
         "ESP Failure-Risk Agent",
         subtitle="30-day failure probability + plain-English explanations. "
                  "Built by an ex-OXY / ex-Shell Staff Production Engineer.",
-        chips=[(f"v{APP_VERSION}", "ver"), ("OOF AUROC ≈0.85", "eval"),
-               ("fleet explorer", "info")],
+        chips=[(f"v{APP_VERSION}", "ver"), ("OOF AUROC ≈0.85 (≈ oracle ceiling)", "eval"),
+               ("trained survival model", "info")],
     )
     theme.data_badge("synthetic", "Modeled SCADA + labeled failures with known ground truth — no public dataset has ESP telemetry or failure labels.")
 
@@ -176,20 +233,22 @@ def render_overview() -> None:
     with st.expander(f"🆕 What's New in v{APP_VERSION}"):
         st.markdown(
             """
-- **Fleet explorer (multipage)** — a Fleet Overview plus a **drill-down page per well**
-  (`st.navigation`): each well page carries its own risk metric, suspected failure mode,
-  SCADA chart, top-drivers table, SHAP contribution bar, survival/RUL curve, and the BYOK
-  AI explanation.
-- **Sortable fleet table** — one row per well with lift, lateral, basin·formation (shared
-  registry), 30-day failure risk %, suspected failure mode, median RUL days, and the latest
-  BFPD / intake / amps.
-- **Fleet-level analytics on the overview** — decision-economics threshold chart, the
-  out-of-fold **reliability curve**, **score-drift / PSI** monitoring, and the **fleet RUL
-  ranking** all live here; the threshold / top-N controls drive the overview views.
-- Per-well SHAP contribution bar (red raises risk, green lowers it) + a per-well projected
-  survival curve with median RUL — moved into each well's page.
-- Survival / RUL stays a **model-derived projection** under a constant-hazard assumption
-  (see `src/survival.py`), not a trained time-to-event model.
+- **Genuine survival model** — a trained **discrete-time logistic hazard** (`src/survival_model.py`)
+  fit on the synthetic run-life ground truth (right-censored healthy wells included), evaluated
+  out-of-fold with proper survival metrics (**time-dependent C-index** and **Integrated Brier
+  Score** vs a Kaplan–Meier baseline). The per-well survival curve and fleet RUL ranking now come
+  from *this* learned hazard shape, not a transform of the 30-day probability. (The old
+  constant-hazard projection in `src/survival.py` remains a labeled fallback.)
+- **Oracle / Bayes ceiling** — because the generator's label process is known, we compute the
+  **best AUROC / precision@top-10% / Brier any model could reach** given the irreducible label
+  noise, and report the model *against* that ceiling (📐 panel below). It reframes the realistic
+  ~0.85 honestly: the model sits essentially **at the noise floor**, not below some ideal.
+- **Fleet explorer (multipage)** — a Fleet Overview plus a **drill-down page per well**: risk,
+  suspected failure mode, SCADA chart, top-drivers + SHAP bar, the trained survival curve, and the
+  BYOK AI explanation.
+- **Fleet-level analytics on the overview** — decision-economics threshold chart, the out-of-fold
+  **reliability curve**, the **oracle-ceiling** panel, **score-drift / PSI** monitoring, and the
+  **fleet RUL ranking**.
             """
         )
 
@@ -258,6 +317,7 @@ def render_overview() -> None:
     _economics_panel(probs, threshold)
     _survival_fleet_panel(rul_df, med_fleet)
     _reliability_panel()
+    _oracle_panel()
     _drift_panel(features, probs)
 
 
@@ -307,23 +367,47 @@ def _economics_panel(probs: pd.Series, threshold: float) -> None:
 
 
 def _survival_fleet_panel(rul_df, med_fleet: float) -> None:
-    # Fleet RUL ranking — soonest projected failure first. Per-well survival curves
-    # live on each well's drill-down page.
-    if _survival is None or rul_df is None:
+    # Fleet RUL ranking — soonest failure first. Prefer the GENUINE trained time-to-event
+    # model (discrete-time hazard fit on run-life ground truth); fall back to the
+    # constant-hazard projection only if the trained model isn't available.
+    _, features = load()
+    surv_model = get_survival_model()
+    sm_metrics = survival_metrics()
+
+    use_trained = surv_model is not None and _survival_model is not None
+    if use_trained:
+        table = _survival_model.fleet_survival_table(surv_model, features)
+        rul_col = table.set_index("well_id")["median_rul_days"]
+        med_fleet = float(rul_col.median())
+    elif _survival is not None and rul_df is not None:
+        table = rul_df.rename(columns={"median_rul_days": "median_rul_days"})
+        rul_col = table.set_index("well_id")["median_rul_days"]
+    else:
         return
+
     st.divider()
     st.subheader("⏳ Fleet Remaining-Useful-Life (RUL) Ranking")
-    st.caption(
-        "RUL is **model-projected on synthetic data** under a constant-hazard "
-        "assumption (per-day hazard h = 1 − (1 − p₃₀)^(1/30)); it is a projection of "
-        "the existing calibrated probability, not a trained time-to-event model. A "
-        "real-data adapter (`src/real_data.py`, Volve/NDIC) is wired, but the demo "
-        "runs the synthetic generator.")
+    if use_trained:
+        c_idx = sm_metrics["c_index"] if sm_metrics else float("nan")
+        ibs = sm_metrics["ibs"] if sm_metrics else float("nan")
+        ibs_km = sm_metrics["ibs_km_baseline"] if sm_metrics else float("nan")
+        st.caption(
+            "RUL comes from a **genuine trained time-to-event model** — a discrete-time "
+            "logistic hazard fit on the synthetic run-life ground truth (right-censored "
+            "healthy wells included), NOT a transform of the 30-day probability. "
+            f"Out-of-fold **C-index = {c_idx:.2f}** (0.5 = chance), **IBS = {ibs:.3f}** "
+            f"(Kaplan–Meier baseline {ibs_km:.3f}). Median RUL = day projected survival "
+            "S(t) crosses 50%.")
+    else:
+        st.caption(
+            "RUL is a **constant-hazard projection** of the calibrated 30-day risk "
+            "(h = 1 − (1 − p₃₀)^(1/30)) — the trained time-to-event model is "
+            "unavailable in this environment.")
     theme.references(["survival"])
     try:
         st.metric("Median fleet RUL", f"{med_fleet:.0f} days")
 
-        top_rul = rul_df.head(12).iloc[::-1]   # bottom-up so soonest is on top
+        top_rul = table.head(12).iloc[::-1]   # bottom-up so soonest is on top
         rmin, rmax = top_rul["median_rul_days"].min(), top_rul["median_rul_days"].max()
         span = max(rmax - rmin, 1e-9)
         def _urgency_color(v):
@@ -335,19 +419,23 @@ def _survival_fleet_panel(rul_df, med_fleet: float) -> None:
             x=top_rul["median_rul_days"], y=top_rul["well_id"], orientation="h",
             marker_color=bar_colors,
             hovertemplate="%{y}: median RUL %{x:.0f}d<extra></extra>"))
+        title = ("Fleet RUL Ranking — Trained Hazard Model (Soonest Failure First)"
+                 if use_trained else
+                 "Fleet RUL Ranking — Constant-Hazard Projection (Soonest First)")
         rul_fig.update_layout(
-            title="Fleet RUL Ranking (Soonest Projected Failure First)",
+            title=title,
             xaxis_title="median remaining-useful-life (days)", yaxis_title="")
         st.plotly_chart(theme.style_fig(rul_fig, height=380, legend=False),
                         width="stretch")
-        theme.source_note(
-            "Median RUL (days) per well, soonest first. Constant-hazard projection of the "
-            "calibrated 30-day risk; bar color flags urgency (red = soonest).")
+        src = ("Median RUL (days) per well from the trained discrete-time hazard model, "
+               "soonest first; bar color flags urgency (red = soonest)." if use_trained else
+               "Median RUL (days) per well, soonest first. Constant-hazard projection of "
+               "the calibrated 30-day risk; bar color flags urgency (red = soonest).")
+        theme.source_note(src)
 
         # Tie to decision economics: wells projected to fail within the quarter.
         QUARTER = 90
-        within_q = rul_df[rul_df["median_rul_days"] <= QUARTER]
-        n_q = int(len(within_q))
+        n_q = int((rul_col <= QUARTER).sum())
         fc = float(_economics.DEFAULT_FAILURE_COST) if _economics is not None else 350_000.0
         addressable = n_q * fc
         st.info(
@@ -383,6 +471,55 @@ def _reliability_panel() -> None:
     theme.source_note(
         "Mean predicted probability vs. observed failure frequency, binned, from "
         "out-of-fold cross-validation (Platt-calibrated). Diagonal = perfect calibration.")
+
+
+def _oracle_panel() -> None:
+    # Is ~0.85 AUROC "good"? Answer it honestly: the synthetic generator has a KNOWN
+    # label process, so there's a Bayes-optimal CEILING. We show the model against it.
+    oc = oracle_ceiling()
+    if not oc or not oc.get("ceiling"):
+        return
+    c = oc["ceiling"]
+    m_auroc = oc.get("model_auroc")
+    cap = oc.get("capture")
+    st.divider()
+    st.subheader("📐 Oracle Ceiling — Is ~0.85 AUROC Good? (Honest Framing)")
+    st.caption(
+        "The synthetic generator injects ~5% **label noise** (surprise failures / "
+        "mislabels) that is independent of the features, so there is a **Bayes-optimal "
+        "ceiling** on any model. We compute it by scoring the generator's true-class "
+        "probabilities against the same noisy labels — the headline number is only "
+        "meaningful *next to* this ceiling.")
+    o1, o2, o3 = st.columns(3)
+    with o1:
+        if m_auroc is not None:
+            st.metric("Model OOF AUROC", f"{m_auroc:.3f}",
+                      delta=f"ceiling {c['auroc']:.3f}", delta_color="off")
+        else:
+            st.metric("Oracle AUROC ceiling", f"{c['auroc']:.3f}")
+    with o2:
+        if cap is not None:
+            st.metric("Attainable signal captured", f"{cap['above_chance']*100:.0f}%",
+                      help="(model AUROC − 0.5) / (ceiling AUROC − 0.5): the share of "
+                           "discriminating signal above chance the model recovers.")
+        else:
+            st.metric("Precision@top-10% ceiling", f"{c['precision_at_top10pct']:.2f}")
+    with o3:
+        st.metric("Brier ceiling (lowest)", f"{c['brier']:.3f}")
+    msg = (f"Of {c['n_wells']} wells, **{c['n_true_failures']}** are truly failure-bound; "
+           f"**{c['n_label_flips']}** labels are flipped by noise → {c['n_observed_positives']} "
+           f"observed positives. Those flips are unpredictable from data, which is exactly "
+           f"why even a perfect model tops out near **AUROC {c['auroc']:.2f}** here — "
+           f"so a realistic ~0.85 is the model sitting **at the noise floor**, not a defect.")
+    if cap is not None and cap["above_chance"] >= 0.95:
+        st.success(msg)
+    else:
+        st.info(msg)
+    theme.source_note(
+        "Oracle / Bayes-optimal ceiling (src/oracle.py): best attainable AUROC, "
+        "precision@top-10%, and Brier given the generator's irreducible label noise, "
+        "scored against the realised labels. 'Attainable signal captured' = "
+        "(model − 0.5)/(ceiling − 0.5).")
 
 
 def _drift_panel(features: pd.DataFrame, probs: pd.Series) -> None:
@@ -528,22 +665,49 @@ def render_well(well_id: str) -> None:
 
 
 def _well_survival(well_id: str, risk: float) -> None:
-    # Turn the calibrated 30-day failure probability into a forward survival curve
-    # under a constant-hazard-within-window assumption (NOT a trained time-to-event
-    # model — see src/survival.py). Median RUL = day S(t) crosses 50%.
-    if _survival is None:
-        return
-    st.divider()
-    st.subheader("⏳ Time-to-Failure — Projected Survival & Remaining-Useful-Life (RUL)")
-    st.caption(
-        "RUL is **model-projected on synthetic data** under a constant-hazard "
-        "assumption (per-day hazard h = 1 − (1 − p₃₀)^(1/30)); it is a projection of "
-        "the existing calibrated probability, not a trained time-to-event model.")
-    theme.references(["survival"])
-    try:
+    # Per-well survival curve. Prefer the GENUINE trained time-to-event model (discrete-
+    # time hazard) — a real S(t|x) estimated from run-life data — and fall back to the
+    # constant-hazard projection of p30 only if the trained model is unavailable.
+    _, features = load()
+    surv_model = get_survival_model()
+    sm_metrics = survival_metrics()
+    use_trained = (surv_model is not None and _survival_model is not None
+                   and well_id in features.index)
+
+    if use_trained:
+        days, surv_all = surv_model.survival_grid(features.loc[[well_id]])
+        surv = surv_all[0]
+        rul_arr = surv_model.median_rul(features.loc[[well_id]])
+        med_rul = int(rul_arr[0])
+        horizon = surv_model.max_horizon
+        capped = med_rul >= horizon
+    elif _survival is not None:
         days, surv = _survival.survival_curve(risk, horizon_days=HORIZON)
         med_rul = _survival.expected_rul(risk, horizon_days=HORIZON)
+        horizon = HORIZON
+        capped = isinstance(med_rul, str)
+    else:
+        return
 
+    st.divider()
+    st.subheader("⏳ Time-to-Failure — Survival Curve & Remaining-Useful-Life (RUL)")
+    if use_trained:
+        c_idx = sm_metrics["c_index"] if sm_metrics else float("nan")
+        ibs = sm_metrics["ibs"] if sm_metrics else float("nan")
+        st.caption(
+            "S(t) is from a **genuine trained time-to-event model** — a discrete-time "
+            "logistic hazard h(t|x) fit on the synthetic run-life ground truth, so the "
+            "curve's *shape* is learned from data (not a transform of p₃₀). "
+            f"Out-of-fold **C-index = {c_idx:.2f}**, **IBS = {ibs:.3f}**. "
+            "Median RUL = day S(t) crosses 50%.")
+    else:
+        st.caption(
+            "S(t) is a **constant-hazard projection** of the calibrated 30-day risk "
+            "(h = 1 − (1 − p₃₀)^(1/30)) — the trained time-to-event model is "
+            "unavailable in this environment.")
+    theme.references(["survival"])
+    try:
+        med_is_num = isinstance(med_rul, (int, float)) and not capped
         tcol1, tcol2 = st.columns([2, 1])
         with tcol1:
             sv_fig = go.Figure()
@@ -553,23 +717,29 @@ def _well_survival(well_id: str, risk: float) -> None:
                 hovertemplate="day %{x}: S=%{y:.0%}<extra></extra>"))
             sv_fig.add_hline(y=0.5, line_dash="dot", line_color=theme.GREY,
                              annotation_text="50%", annotation_position="right")
-            if isinstance(med_rul, int):
-                sv_fig.add_vline(x=med_rul, line_dash="dash", line_color=theme.RED,
-                                 annotation_text=f"median RUL ≈ {med_rul}d",
+            if med_is_num:
+                sv_fig.add_vline(x=int(med_rul), line_dash="dash", line_color=theme.RED,
+                                 annotation_text=f"median RUL ≈ {int(med_rul)}d",
                                  annotation_position="top")
             sv_fig.update_layout(
-                title=f"Projected Survival — {well_id}",
+                title=f"Survival — {well_id}",
                 xaxis_title="days from today", yaxis_title="P(survives past day t)",
-                yaxis_range=[0, 1.02], xaxis_range=[0, HORIZON])
+                yaxis_range=[0, 1.02], xaxis_range=[0, horizon])
             st.plotly_chart(theme.style_fig(sv_fig, height=340), width="stretch")
-            theme.source_note(
-                "Projected survival S(t) = P(no failure past day t) under a constant-hazard "
-                "fit to the calibrated 30-day risk; median RUL (days) = where S(t) crosses 50%.")
+            note = ("Survival S(t|x) = P(no failure past day t) from the trained discrete-"
+                    "time hazard model; median RUL (days) = where S(t) crosses 50%."
+                    if use_trained else
+                    "Projected survival S(t) under a constant-hazard fit to the calibrated "
+                    "30-day risk; median RUL (days) = where S(t) crosses 50%.")
+            theme.source_note(note)
         with tcol2:
-            rul_label = med_rul if isinstance(med_rul, str) else f"{med_rul} days"
+            if capped:
+                rul_label = f">{horizon}d"
+            else:
+                rul_label = f"{int(med_rul)} days"
             st.metric(f"Median RUL — {well_id}", rul_label)
             st.caption(f"30-day failure probability p₃₀ = {risk:.0%}. "
-                       "Median RUL = day projected survival crosses 50%.")
+                       "Median RUL = day survival crosses 50%.")
     except Exception as e:  # never let the RUL panel break the app
         st.caption(f"Time-to-failure panel unavailable: {e}")
 
