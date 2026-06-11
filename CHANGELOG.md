@@ -4,6 +4,21 @@ All notable changes to this project are documented here. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] — 2026-06-11
+
+### Added
+- **Bring your own fleet SCADA (CSV upload)** — a sidebar **Data source** toggle adds *Upload your
+  own fleet SCADA CSV*, scoring a user's wells with the **exact same** trained model + feature
+  pipeline as the demo (no parallel path: the upload is split into the same `{well_id: DataFrame}`
+  shape via the existing `load_well_scada`, then `featurize_fleet` → `ESPRiskModel.predict_proba` +
+  Tree-SHAP). **Strict, documented schema** — one long/tidy CSV with `well_id` + the core channels
+  (`date, bfpd, intake_pressure_psi, motor_temp_f, motor_amps, runtime_pct`); the two v0.5.0
+  channels (`drive_freq_hz`, `current_imbalance_pct`) stay optional and are backfilled. Includes a
+  **downloadable template CSV**, up-front column validation (precise `st.error` listing exactly the
+  missing columns, then `st.stop()` — never crashes on bad input), and a caption noting **nothing is
+  stored server-side**. New `validate_scada_schema` / `load_fleet_from_frame` / `scada_template_frame`
+  helpers in `src/data_loader.py`, unit-tested in `tests/test_upload.py`.
+
 ## [0.7.2] — 2026-06-11
 
 ### Added

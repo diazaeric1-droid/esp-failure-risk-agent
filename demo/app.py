@@ -14,6 +14,7 @@ Heavy loads are cached on string args.
 """
 from __future__ import annotations
 
+import io
 import subprocess
 import sys
 from functools import partial
@@ -55,7 +56,14 @@ for _stale in ("theme", "fleet_registry"):
     sys.modules.pop(_stale, None)
 
 import theme
-from src.data_loader import load_fleet
+from src.data_loader import (
+    UPLOAD_OPTIONAL_COLUMNS,
+    UPLOAD_REQUIRED_COLUMNS,
+    load_fleet,
+    load_fleet_from_frame,
+    scada_template_frame,
+    validate_scada_schema,
+)
 from src.explainer import MissingAPIKey, classify_failure_mode, explain_well, top_drivers
 from src.features import featurize_fleet
 from src.model import ESPRiskModel
@@ -92,6 +100,11 @@ DATA_DIR = REPO_ROOT / "data" / "synthetic"
 MODEL_PATH = REPO_ROOT / "artifacts" / "esp_risk_model.joblib"
 HORIZON = 180  # projection horizon (days) for the survival / RUL layer
 
+# Data-source toggle values (sidebar radio). Synthetic (demo) is the default; the
+# upload path scores a user's own fleet SCADA through the SAME loader/features/model.
+SRC_SYNTHETIC = "Synthetic (demo)"
+SRC_UPLOAD = "Upload your own fleet SCADA CSV"
+
 
 def _bootstrap_if_needed() -> None:
     """Generate synthetic data and train a baseline model on first run.
@@ -125,12 +138,37 @@ def get_model():
 def _scored():
     """Cache the fleet scoring pass: probs (sorted desc) + per-well contributions."""
     _, features = load()
+    return _score_features(features)
+
+
+def _score_features(features: pd.DataFrame):
+    """Score an engineered feature frame with the TRAINED model: (probs desc, contribs).
+
+    Shared by the synthetic default and the upload path so both go through the exact
+    same `ESPRiskModel.predict_proba` + Tree-SHAP `feature_contributions` — no parallel
+    scoring logic. `features` must already be `featurize_fleet(...)` output.
+    """
     model = get_model()
     probs = pd.Series(
         model.predict_proba(features), index=features.index, name="risk"
     ).sort_values(ascending=False)
     contribs = model.feature_contributions(features)
     return probs, contribs
+
+
+@st.cache_data(show_spinner=False)
+def _load_uploaded(csv_bytes: bytes):
+    """Load + featurize a user's uploaded fleet SCADA CSV, reusing the existing pipeline.
+
+    Pure data step (cached on the raw bytes): parse the long/tidy CSV, split it into the
+    same `{well_id: DataFrame}` shape as the on-disk fleet via the EXISTING loader, then
+    run the EXISTING `featurize_fleet`. Returns (fleet, features). Schema validation is
+    done by the caller BEFORE this runs, so a bad upload never reaches here.
+    """
+    df = pd.read_csv(io.BytesIO(csv_bytes), parse_dates=["date"])
+    fleet = load_fleet_from_frame(df)
+    features = featurize_fleet(fleet)
+    return fleet, features
 
 
 @st.cache_resource(show_spinner=False)
@@ -206,7 +244,92 @@ def _last_scada(scada: pd.DataFrame) -> dict:
 # PAGE: Fleet overview
 # =====================================================================
 
+def _schema_caption() -> str:
+    """Human-readable required/optional column list for the upload UI + template."""
+    req = ", ".join(f"`{c}`" for c in UPLOAD_REQUIRED_COLUMNS)
+    opt = ", ".join(f"`{c}`" for c in UPLOAD_OPTIONAL_COLUMNS)
+    return (
+        f"**Strict schema** — one long/tidy CSV for the whole fleet (one row per "
+        f"well-day). **Required columns:** {req}. **Optional** (backfilled with "
+        f"healthy defaults if absent): {opt}. `date` is parsed as a calendar date; "
+        f"each well needs ~30–60 days of history for the trend/volatility features. "
+        f"Scored with the exact trained model + feature pipeline the demo uses. "
+        f"**Nothing is stored server-side** — the file is parsed in memory for this "
+        f"session only.")
+
+
+def _resolve_overview_source():
+    """Sidebar data-source control + (for the upload path) strict validation.
+
+    Returns ``(fleet, features, probs, contribs, is_upload)``. For the default synthetic
+    source this is the cached fleet/scoring. For the upload source it validates the CSV
+    BEFORE scoring — on missing required columns it shows a precise ``st.error`` and
+    ``st.stop()``s (never crashes), then reuses the existing loader → features → model.
+    """
+    with st.sidebar:
+        st.header("Data source")
+        data_source = st.radio(
+            "Fleet to score", [SRC_SYNTHETIC, SRC_UPLOAD], index=0, key="data_source",
+            help="Synthetic = the modeled demo fleet with known ground truth (powers the "
+                 "eval panels). Upload = score YOUR own fleet SCADA through the same "
+                 "trained model + feature pipeline. Nothing is stored server-side.")
+        uploaded = None
+        if data_source == SRC_UPLOAD:
+            uploaded = st.file_uploader("Fleet SCADA CSV", type=["csv"], key="scada_upload")
+            st.download_button(
+                "⬇ Download a template CSV", data=scada_template_frame().to_csv(index=False),
+                file_name="esp_scada_template.csv", mime="text/csv",
+                help="Header row + one example row in the exact required schema.")
+
+    if data_source != SRC_UPLOAD:
+        fleet, features = load()
+        probs, contribs = _scored()
+        return fleet, features, probs, contribs, False
+
+    # --- upload path --------------------------------------------------------
+    st.caption(_schema_caption())
+    if uploaded is None:
+        st.info("Upload a fleet SCADA CSV in the sidebar to score your own wells, or "
+                "download the template to see the exact format. Nothing is stored "
+                "server-side.")
+        st.stop()
+
+    # STRICT validation BEFORE any scoring — read the header only, report exact gaps.
+    try:
+        head = pd.read_csv(io.BytesIO(uploaded.getvalue()), nrows=0)
+    except Exception as e:
+        st.error(f"Could not read the uploaded CSV: {e}")
+        st.stop()
+    missing = validate_scada_schema(head)
+    if missing:
+        st.error(
+            "Uploaded SCADA CSV is missing required column(s): "
+            f"**{', '.join(missing)}**.\n\n"
+            f"Required columns: {', '.join(UPLOAD_REQUIRED_COLUMNS)}. "
+            f"Optional (backfilled if absent): {', '.join(UPLOAD_OPTIONAL_COLUMNS)}. "
+            "Download the template CSV in the sidebar for the exact format.")
+        st.stop()
+
+    try:
+        fleet, features = _load_uploaded(uploaded.getvalue())
+    except Exception as e:  # malformed values, unparseable dates, empty file, etc.
+        st.error(f"Could not process the uploaded SCADA CSV: {e}\n\n"
+                 "Check that `date` is a parseable date and the channel columns are "
+                 "numeric. Download the template CSV in the sidebar for a known-good example.")
+        st.stop()
+    if not len(features):
+        st.error("No wells found in the uploaded CSV after parsing — ensure there is at "
+                 "least one `well_id` with SCADA rows.")
+        st.stop()
+
+    probs, contribs = _score_features(features)
+    st.success(f"Scored **{len(features)}** uploaded well(s) with the trained model. "
+               "Nothing is stored server-side.")
+    return fleet, features, probs, contribs, True
+
+
 def render_overview() -> None:
+    is_upload_sel = st.session_state.get("data_source") == SRC_UPLOAD
     theme.header(
         "ESP Failure-Risk Agent",
         subtitle="30-day failure probability + plain-English explanations. "
@@ -214,7 +337,11 @@ def render_overview() -> None:
         chips=[(f"v{APP_VERSION}", "ver"), ("OOF AUROC ≈0.85 (≈ oracle ceiling)", "eval"),
                ("trained survival model", "info")],
     )
-    theme.data_badge("synthetic", "Modeled SCADA + labeled failures with known ground truth — no public dataset has ESP telemetry or failure labels.")
+    if is_upload_sel:
+        theme.data_badge("real", "Your uploaded fleet SCADA — scored in-session with the "
+                                 "trained model + feature pipeline; nothing stored server-side.")
+    else:
+        theme.data_badge("synthetic", "Modeled SCADA + labeled failures with known ground truth — no public dataset has ESP telemetry or failure labels.")
 
     theme.how_to(
         "- **What it predicts** — each ESP well's **30-day failure probability** (a "
@@ -243,6 +370,11 @@ def render_overview() -> None:
   **best AUROC / precision@top-10% / Brier any model could reach** given the irreducible label
   noise, and report the model *against* that ceiling (📐 panel below). It reframes the realistic
   ~0.85 honestly: the model sits essentially **at the noise floor**, not below some ideal.
+- **Bring your own fleet SCADA** — switch the sidebar **Data source** to *Upload your own fleet
+  SCADA CSV* to score YOUR wells with the exact same trained model + feature pipeline. Strict,
+  documented schema (one long/tidy CSV: `well_id` + the core channels; the two v0.5.0 channels are
+  optional and backfilled) with a downloadable template; the upload is validated up-front and
+  parsed in memory only — **nothing is stored server-side**.
 - **Fleet explorer (multipage)** — a Fleet Overview plus a **drill-down page per well**: risk,
   suspected failure mode, SCADA chart, top-drivers + SHAP bar, the trained survival curve, and the
   BYOK AI explanation.
@@ -252,8 +384,7 @@ def render_overview() -> None:
             """
         )
 
-    fleet, features = load()
-    probs, _ = _scored()
+    fleet, features, probs, contribs, is_upload = _resolve_overview_source()
 
     # --- controls that drive the fleet views (overview-scoped) --------------
     with st.sidebar:
@@ -287,17 +418,23 @@ def render_overview() -> None:
                    if rul_df is not None else {})
     rows = []
     for well_id in probs.index:
-        meta = fleet_registry.get(well_id)
-        if meta.lift != "ESP":
-            continue
         feat_row = features.loc[well_id].to_dict()
         mode, _ = classify_failure_mode(feat_row)
         last = _last_scada(fleet.get(well_id))
-        rows.append({
-            "Well": well_id,
-            "Lift": meta.lift,
-            "Lateral (ft)": meta.lateral_length_ft,
-            "Basin · Formation": f"{meta.basin} · {meta.formation}",
+        row = {"Well": well_id}
+        # Synthetic fleet: enrich with the shared registry (and keep only ESP wells).
+        # Uploaded fleet: the registry's Permian identity is meaningless for the user's
+        # own wells, so score every uploaded well and skip the placeholder metadata.
+        if not is_upload:
+            meta = fleet_registry.get(well_id)
+            if meta.lift != "ESP":
+                continue
+            row.update({
+                "Lift": meta.lift,
+                "Lateral (ft)": meta.lateral_length_ft,
+                "Basin · Formation": f"{meta.basin} · {meta.formation}",
+            })
+        row.update({
             "30-day risk %": round(float(probs[well_id]) * 100.0, 1),
             "Suspected failure mode": mode,
             "Median RUL (days)": rul_by_well.get(well_id, float("nan")),
@@ -305,6 +442,7 @@ def render_overview() -> None:
             "Intake psi": round(last["intake"], 0),
             "Motor amps": round(last["amps"], 1),
         })
+        rows.append(row)
     table = pd.DataFrame(rows)
     st.dataframe(table, width="stretch", hide_index=True,
                  column_config={
@@ -314,10 +452,14 @@ def render_overview() -> None:
                        file_name="esp_risk_fleet.csv", mime="text/csv")
 
     # --- fleet-level analytics ----------------------------------------------
+    # Economics / survival-RUL / reliability / drift all operate on the model + the
+    # active fleet's scores, so they work on an uploaded fleet too. The oracle ceiling
+    # is computed from the SYNTHETIC generator's known labels, so it's synthetic-only.
     _economics_panel(probs, threshold)
-    _survival_fleet_panel(rul_df, med_fleet)
+    _survival_fleet_panel(rul_df, med_fleet, features)
     _reliability_panel()
-    _oracle_panel()
+    if not is_upload:
+        _oracle_panel()
     _drift_panel(features, probs)
 
 
@@ -366,11 +508,11 @@ def _economics_panel(probs: pd.Series, threshold: float) -> None:
         st.caption(f"Decision-economics panel unavailable: {e}")
 
 
-def _survival_fleet_panel(rul_df, med_fleet: float) -> None:
+def _survival_fleet_panel(rul_df, med_fleet: float, features: pd.DataFrame) -> None:
     # Fleet RUL ranking — soonest failure first. Prefer the GENUINE trained time-to-event
     # model (discrete-time hazard fit on run-life ground truth); fall back to the
-    # constant-hazard projection only if the trained model isn't available.
-    _, features = load()
+    # constant-hazard projection only if the trained model isn't available. `features`
+    # is the ACTIVE fleet (synthetic or uploaded) so the ranking reflects what's scored.
     surv_model = get_survival_model()
     sm_metrics = survival_metrics()
 
