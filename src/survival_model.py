@@ -272,7 +272,10 @@ def integrated_brier_score(durations, events, surv_grid, days, max_t=None) -> fl
         contrib[case_b] = ((1.0 - S_pred[case_b]) ** 2) / G_at_t[k]
         bs_t[k] = contrib.sum() / len(durations)       # cases not in A or B contribute 0
     # Trapezoidal integral over time, normalised by the time span.
-    _trapz = getattr(np, "trapezoid", np.trapz)   # np>=2.0 renamed trapz -> trapezoid
+    # np>=2.0 renamed trapz -> trapezoid (and removed np.trapz). Use hasattr, NOT
+    # getattr(np, "trapezoid", np.trapz): the default arg np.trapz is evaluated eagerly
+    # and AttributeErrors on numpy 2.x even when np.trapezoid exists (CI runs py3.14).
+    _trapz = np.trapezoid if hasattr(np, "trapezoid") else np.trapz
     return float(_trapz(bs_t, eval_t) / (eval_t[-1] - eval_t[0])) if len(eval_t) > 1 \
         else float(bs_t[0])
 
