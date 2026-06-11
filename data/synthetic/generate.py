@@ -31,6 +31,20 @@ Together these push a real model into the ~0.75-0.90 AUROC band rather than 1.0.
 
 Every pattern draws from its OWN per-well rng (seed=well index), so output does
 not depend on the order patterns are evaluated.
+
+RUN-LIFE GROUND TRUTH (for the survival / time-to-event model)
+--------------------------------------------------------------
+Because we *generate* the degradation, we also know each well's true time-to-event,
+so we emit it for a genuine survival model (``src/survival_model.py``) — not just the
+30-day binary label:
+- ``time_to_event_days`` : for a failure-bound well, the day (counting from the end of
+  the 60-day observation window) on which the ESP fails; earlier-onset / more-severe
+  signatures fail sooner. For a healthy well, the day on which monitoring ends with the
+  well still running (a right-censoring time).
+- ``event_observed``     : 1 if the well failed (uncensored), 0 if right-censored.
+The 30-day binary label is exactly ``event_observed == 1 and time_to_event_days <= 30``
+*before* label noise, so the classifier benchmark is unchanged: every failure-bound
+well is given a ``time_to_event_days <= 30``.
 """
 from __future__ import annotations
 
@@ -46,6 +60,9 @@ N_DAYS = 60
 FAILURE_RATE = 0.12
 LABEL_NOISE_RATE = 0.05
 MASTER_SEED = 7
+WINDOW_DAYS = 30            # the binary-label horizon AND the cap on a failure's time-to-event
+CENSOR_MAX_DAYS = 90        # healthy wells are right-censored in (WINDOW_DAYS, CENSOR_MAX_DAYS]
+RUNLIFE_SEED_OFFSET = 10_000  # run-life draws use an independent RNG so SCADA is untouched
 RNG = np.random.default_rng(MASTER_SEED)
 
 DATE_END = pd.Timestamp("2026-05-25")
@@ -164,6 +181,28 @@ def normal_with_noise(rng: np.random.Generator) -> pd.DataFrame:
     return df
 
 
+def failure_time_to_event(rng: np.random.Generator) -> int:
+    """Days from the observation-window end until this failure-bound ESP fails.
+
+    Always in [1, WINDOW_DAYS] so the 30-day binary label is unchanged (every
+    failure-bound well still ``failed_within_30d == 1`` pre-noise), while giving the
+    survival model a real spread of failure times to order. Drawn from a dedicated
+    independent RNG so it never perturbs the SCADA channels (keeps the classifier
+    data + oracle ceiling byte-identical)."""
+    # Beta(1.6, 3) skews toward sooner failures (most degrade fast once flagged) but
+    # keeps a tail out to ~30 days; mapped onto [1, 30] and rounded.
+    frac = float(rng.beta(1.6, 3.0))
+    return int(np.clip(round(1 + frac * (WINDOW_DAYS - 1)), 1, WINDOW_DAYS))
+
+
+def censoring_time(rng: np.random.Generator) -> int:
+    """Right-censoring day for a healthy well: monitoring ends with the well still
+    running on this day (counting from the observation-window end). Spread over
+    (WINDOW_DAYS, CENSOR_MAX_DAYS] so survival curves have range past 30 days and
+    the C-index sees admissible (failure, survivor) pairs across the horizon."""
+    return int(rng.integers(WINDOW_DAYS + 1, CENSOR_MAX_DAYS + 1))
+
+
 FAILURE_PATTERNS = [
     scale_failure,
     gas_interference_failure,
@@ -192,34 +231,54 @@ def main():
     for i in range(N_WELLS):
         well_id = f"well_{i+1:03d}"
         rng = np.random.default_rng(i)               # per-well, order-independent
+        # Independent run-life RNG: drawing it here never perturbs the SCADA channels,
+        # so the classifier feature data + oracle ceiling stay byte-identical.
+        rl_rng = np.random.default_rng(RUNLIFE_SEED_OFFSET + i)
         if i in failure_indices:
             pattern = FAILURE_PATTERNS[i % len(FAILURE_PATTERNS)]
             df = pattern(rng)
             failed = 1
             mode = PATTERN_MODE[pattern.__name__]
+            ttf = failure_time_to_event(rl_rng)      # <= WINDOW_DAYS so label stays 1
         elif i in mild_indices:
             df = mild_degradation(rng)
             failed = 0
             mode = "healthy_degrading"
+            ttf = censoring_time(rl_rng)
         else:
             df = normal_with_noise(rng)
             failed = 0
             mode = "healthy"
+            ttf = censoring_time(rl_rng)
         df.to_csv(OUT / f"{well_id}.csv", index=False)
-        labels.append({"well_id": well_id, "failed_within_30d": failed, "failure_mode": mode})
+        labels.append({"well_id": well_id, "failed_within_30d": failed,
+                       "failure_mode": mode,
+                       "time_to_event_days": int(ttf),
+                       "event_observed": int(failed)})
 
     # Inject label noise: flip ~5% of labels (real datasets have mislabeled /
     # surprise outcomes; this caps achievable AUROC below 1.0). The recorded
-    # failure_mode is left untouched (it documents the *generated* signature).
+    # failure_mode is left untouched (it documents the *generated* signature). The
+    # run-life clock is reconciled WITH the flip so the survival supervision matches
+    # the (noisy) world the classifier sees: a flip to "failed" becomes an observed
+    # event with a within-window failure day; a flip to "healthy" becomes a censoring.
     n_flip = max(1, int(LABEL_NOISE_RATE * N_WELLS))
     flip_idx = RNG.choice(N_WELLS, size=n_flip, replace=False)
     for j in flip_idx:
         labels[j]["failed_within_30d"] = 1 - labels[j]["failed_within_30d"]
+        labels[j]["event_observed"] = labels[j]["failed_within_30d"]
+        rl_rng = np.random.default_rng(RUNLIFE_SEED_OFFSET + N_WELLS + j)
+        labels[j]["time_to_event_days"] = int(
+            failure_time_to_event(rl_rng) if labels[j]["event_observed"] == 1
+            else censoring_time(rl_rng))
 
     pd.DataFrame(labels).to_csv(OUT / "labels.csv", index=False)
     n_pos = sum(l["failed_within_30d"] for l in labels)
+    n_events = sum(l["event_observed"] for l in labels)
     print(f"Wrote {N_WELLS} wells ({n_pos} failures incl. {n_flip} noise-flipped labels) "
-          f"across {len(FAILURE_PATTERNS)} failure modes. Labels in labels.csv.")
+          f"across {len(FAILURE_PATTERNS)} failure modes. "
+          f"Run-life: {n_events} observed events, {N_WELLS - n_events} right-censored. "
+          f"Labels (+ time_to_event_days / event_observed) in labels.csv.")
 
 
 if __name__ == "__main__":
