@@ -251,12 +251,8 @@ def render_overview() -> None:
                  column_config={
                      "30-day risk %": st.column_config.NumberColumn(format="%.1f%%"),
                  })
-    st.download_button(
-        "⬇ Download CSV",
-        data=table.to_csv(index=False),
-        file_name="esp_fleet_risk_table.csv",
-        mime="text/csv",
-    )
+    st.download_button("⬇ Download risk table (CSV)", data=table.to_csv(index=False),
+                       file_name="esp_risk_fleet.csv", mime="text/csv")
 
     # --- fleet-level analytics ----------------------------------------------
     _economics_panel(probs, threshold)
